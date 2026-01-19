@@ -41,27 +41,34 @@ def _build_minimal_definition(
     tier: Optional[str],
     tags: List[str],
 ) -> dict:
-    attributes: dict = {
-        "service": service,
-        "schema_version": schema_version,
+    schema: dict = {
+        "dd-service": service,
     }
-    if description:
-        attributes.setdefault("info", {})["description"] = description
+
+    if tier:
+        schema["tier"] = tier
+
+    if team:
+        schema["team"] = team
+
+    if application:
+        schema["application"] = application
+
     full_tags: List[str] = []
     if env:
         full_tags.append(f"env:{env}")
     if tags:
         full_tags.extend(tags)
     if full_tags:
-        attributes["tags"] = full_tags
-    if team:
-        attributes["team"] = team
-    if application:
-        attributes["application"] = application
-    if tier:
-        attributes["tier"] = tier
-    return attributes
+        schema["tags"] = full_tags
 
+    if description:
+        schema.setdefault("description", description)
+
+    return {
+        "schema_version": schema_version,
+        "schema": schema,
+    }
 
 def _render_definitions_table(items: list[dict]) -> None:
     """
