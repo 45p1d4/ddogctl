@@ -16,6 +16,15 @@ from ..api import ApiError
 app = typer.Typer(help=t("Service Catalog (Software Catalog v3)", "Service Catalog (Software Catalog v3)"))
 console = Console()
 
+SUCCESS_MSG = {
+    "es": '✔ El servicio "{service}" fue actualizado correctamente en Datadog.',
+    "en": '✔ Service "{service}" was successfully updated in Datadog.',
+}
+
+ERROR_MSG = {
+    "es": '✖ Error al actualizar el servicio "{service}".',
+    "en": '✖ Failed to update service "{service}".',
+}
 
 # -------------------------------------------------------------------
 # Helpers
@@ -120,12 +129,30 @@ def apply_service(
 
     try:
         resp = client.post("/api/v2/catalog/entity", json=payload)
-        console.print(RichJSON.from_data(resp))
+    
+        if debug:
+            console.print(RichJSON.from_data(resp))
+        else:
+            console.print(
+                t(
+                    SUCCESS_MSG["es"].format(service=service),
+                    SUCCESS_MSG["en"].format(service=service),
+                )
+            )
+    
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
+            console.print(f"[red]HTTP {exc.status_code}[/red]")
+            console.print(RichJSON.from_data(exc.payload))
+        else:
+            console.print(
+                t(
+                    ERROR_MSG["es"].format(service=service),
+                    ERROR_MSG["en"].format(service=service),
+                )
+            )
         raise typer.Exit(code=1) from exc
-
+    
 
 @app.command(
     "get",
