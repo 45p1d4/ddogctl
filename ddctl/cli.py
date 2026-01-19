@@ -53,6 +53,7 @@ from .commands import incidents as incidents_cmd  # noqa: E402
 from .commands import synthetics as synthetics_cmd  # noqa: E402
 from .commands import logs as logs_cmd  # noqa: E402
 from .commands import apm as apm_cmd  # noqa: E402
+from .commands import services as services_cmd  # noqa: E402
 from .i18n import t
 from rich.console import Console
 from importlib import resources as importlib_resources
@@ -64,6 +65,7 @@ app.add_typer(incidents_cmd.app, name="incidents")
 app.add_typer(synthetics_cmd.app, name="synthetics")
 app.add_typer(logs_cmd.app, name="logs")
 app.add_typer(apm_cmd.app, name="apm")
+app.add_typer(services_cmd.app, name="services")
 
 _console = Console()
 
