@@ -122,6 +122,40 @@ Print a Datadog ASCII banner:
 ddogctl guaf
 ```
 
+### Services (Service Definitions)
+Create or update from a YAML file:
+```bash
+ddogctl services apply --file ./service.yaml
+```
+
+Create or update from flags (minimal definition):
+```bash
+ddogctl services apply \
+  --service my-service \
+  --schema-version v2.1 \
+  --env prd \
+  --description "Checkout service" \
+  --tag team:platform --tag app:web --tier critical
+```
+
+List service definitions (table by default; use `--debug` for raw JSON):
+```bash
+ddogctl services list
+ddogctl services list --debug
+```
+
+Get a single service definition:
+```bash
+ddogctl services get --service my-service
+```
+
+Delete a service definition:
+```bash
+ddogctl services delete --service my-service
+```
+
+See Datadog Service Definition API for details: https://docs.datadoghq.com/es/api/latest/service-definition
+
 ## Quickstart
 ```bash
 # 1) Install
