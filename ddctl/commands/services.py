@@ -46,7 +46,11 @@ def _build_minimal_definition(
     }
 
     if tier:
-        schema["tier"] = tier
+        try:
+            schema["tier"] = int(tier)
+        except ValueError:
+            raise typer.BadParameter("--tier must be an integer between 1 and 4")
+
 
     if team:
         schema["team"] = team
