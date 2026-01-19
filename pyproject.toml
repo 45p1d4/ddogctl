@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ddctl"
+version = "0.1.0"
+description = "Datadog CLI inspired by kubectl"
+requires-python = ">=3.10"
+dependencies = [
+  "typer>=0.12",
+  "rich>=13.7",
+  "requests>=2.31",
+  "pyyaml>=6.0",
+  "python-dateutil>=2.9",
+]
+
+[project.scripts]
+ddogctl = "ddctl.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ddctl*"]
+
+[tool.setuptools.package-data]
+ddctl = ["banner.txt"]
+
