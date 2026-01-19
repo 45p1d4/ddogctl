@@ -136,7 +136,7 @@ ddogctl apm errors rate --service payments --group-by resource_name --from now-1
 
 Filtrar por entorno (env):
 ```bash
-ddogctl apm spans list --service ras-api --env prd --from now-15m
-ddogctl apm spans search --query "service:ras-api" --env dev --from now-1h
+ddogctl apm spans list --service my-service --env prd --from now-15m
+ddogctl apm spans search --query "service:my-service" --env dev --from now-1h
 ```
 

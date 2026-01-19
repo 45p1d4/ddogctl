@@ -88,12 +88,12 @@ Printed columns: `timestamp`, `service`, `status`, `message` (message truncated 
 ### APM - Spans
 List spans (simple GET) with optional service/env filter:
 ```bash
-ddogctl apm spans list --service obe-api --env prd --from now-15m --limit 50
+ddogctl apm spans list --service my-service --env prd --from now-15m --limit 50
 ```
 
 Advanced search (POST) with Trace Explorer query:
 ```bash
-ddogctl apm spans search --query "service:obe-api env:prd" --from now-1h --limit 50
+ddogctl apm spans search --query "service:my-service env:prd" --from now-1h --limit 50
 ```
 
 Notes:
@@ -106,12 +106,12 @@ Notes:
 ### APM - Error aggregates
 Top resources by error count (supports `--env` and `--debug`):
 ```bash
-ddogctl apm errors top-resources --service mobile-service --env prd --from now-1h --limit 10 --debug
+ddogctl apm errors top-resources --service my-service --env prd --from now-1h --limit 10 --debug
 ```
 
 Error counts grouped by a facet (default `resource_name`):
 ```bash
-ddogctl apm errors rate --service mobile-service --group-by resource_name --from now-1h --env prd --debug
+ddogctl apm errors rate --service my-service --group-by resource_name --from now-1h --env prd --debug
 ```
 
 The aggregates endpoint is called with JSON:API `data.type=aggregate_request`. Count is read from `attributes.compute.c0` (or from the legacy `computes[0].value` when applicable).
@@ -139,8 +139,8 @@ ddogctl auth status
 ddogctl monitors list --name cpu
 ddogctl dashboards get --id abc-def-123
 ddogctl logs query --from -15m --service checkout --query "status:error" --limit 100
-ddogctl apm spans search --query "service:obe-api env:prd" --from now-1h --limit 50
-ddogctl apm errors top-resources --service mobile-service --env prd --from now-1h --limit 10
+ddogctl apm spans search --query "service:my-service env:prd" --from now-1h --limit 50
+ddogctl apm errors top-resources --service my-service --env prd --from now-1h --limit 10
 ddogctl guaf
 ```
 
