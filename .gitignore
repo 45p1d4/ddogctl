@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+.tox/
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+logs/
+tmp/
+
+# Node (just in case)
+node_modules/
+
+# Datadog CLI sensitive/local configs
+# Project-local config files (use home dir ~/.config/ddctl/config.yaml instead)
+config.yaml
+config.local.yaml
+ddctl.yaml
+ddctl.local.yaml
+*.local.yaml
+*.secrets.yaml
+*.secrets.yml
+*.secrets.json
+
+# Env files with secrets
+.env
+.env.*
+*.env
+
+# Keys / certificates
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.cert
+
+# Cursor/IDE artifacts
+.cursor/
+
