@@ -110,7 +110,7 @@ Crea `POST /api/v2/incidents` con el JSON requerido y muestra la respuesta.
 ### Synthetics
 ```bash
 ddogctl synthetics trigger --public-id <id> --public-id <id2> ...
-```>
+```
 Realiza `POST /api/v1/synthetics/tests/trigger` con `{"tests":[{"public_id":"..."}]}` y muestra la respuesta.
 
 ### Logs
@@ -140,3 +140,75 @@ ddogctl apm spans list --service my-service --env prd --from now-15m
 ddogctl apm spans search --query "service:my-service" --env dev --from now-1h
 ```
 
+### Services (Service Definitions)
+Crear/actualizar desde YAML:
+```bash
+ddogctl services apply --file .\service.yaml
+```
+
+Crear/actualizar con flags mínimos:
+```bash
+ddogctl services apply `
+  --service my-service `
+  --schema-version v2.1 `
+  --env prd `
+  --description "Servicio de checkout" `
+  --tag team:platform --tag app:web --tier critical
+```
+
+Listar definiciones (tabla por defecto; `--debug` muestra JSON crudo):
+```bash
+ddogctl services list
+ddogctl services list --debug
+```
+
+Obtener una definición por nombre:
+```bash
+ddogctl services get --service my-service
+```
+
+Eliminar una definición:
+```bash
+ddogctl services delete --service my-service
+```
+
+API de referencia: https://docs.datadoghq.com/es/api/latest/service-definition
+
+### Métricas
+
+Consultar series temporales:
+```bash
+ddogctl metrics query `
+  --query "avg:kubernetes.cpu.requests{cluster:tor-prod-rke2} by {kube_deployment}" `
+  --from now-1h --rollup 120 --limit 20 --spark
+```
+Opciones:
+- `--limit`: máximo de series a mostrar
+- `--spark` y `--spark-points`: muestra un mini‑gráfico por serie
+- `--scope-tag kube_deployment`: conserva solo ese tag del scope en la tabla
+- Los valores se imprimen con decimales fijos (sin notación científica)
+
+Cardinalidad de tags:
+```bash
+ddogctl metrics tag-cardinality --metric kubernetes.cpu.requests
+```
+
+Recursos de Kubernetes (CPU/Memoria) por servicio o deployment:
+```bash
+ddogctl metrics k8s-resources `
+  --cluster tor-prod-rke2 `
+  --kube-service tap-ui-prd `
+  --from now-30m --rollup 120 `
+  [--cpu-unit mcores] [--debug]
+```
+Muestra el último punto del rango seleccionado:
+- CPU requests: `sum:kubernetes.cpu.requests{...}`
+- CPU limits: `sum:kubernetes.cpu.limits{...}`
+- CPU usage: `sum:kubernetes.cpu.usage.total{...}.as_rate()` y se convierte de nanocores/seg a cores; si pasas `--cpu-unit mcores` se muestra en millicores
+- Memoria requests: `sum:kubernetes.memory.requests{...}`
+- Memoria limits: `sum:kubernetes.memory.limits{...}`
+- Memoria usage: `sum:container.memory.usage{...}` con unidades legibles (B/KiB/MiB/GiB)
+
+Notas:
+- Todas las agregaciones usan `sum` para representar el total del workload seleccionado.
+- Los números de CPU evitan notación científica; la memoria se auto‑escala a unidades humanas.

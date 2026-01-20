@@ -156,6 +156,43 @@ ddogctl services delete --service my-service
 
 See Datadog Service Definition API for details: https://docs.datadoghq.com/es/api/latest/service-definition
 
+### Metrics
+
+Query timeseries:
+```bash
+ddogctl metrics query --query "avg:kubernetes.cpu.requests{cluster:tor-prod-rke2} by {kube_deployment}" --from now-1h --rollup 120 --limit 20 --spark
+```
+Options:
+- `--limit`: max series to render
+- `--spark` and `--spark-points`: show an inline sparkline
+- `--scope-tag kube_deployment`: keep only that scope tag in the table
+- Values are printed with fixed-point decimals (no scientific notation)
+
+Tag cardinality:
+```bash
+ddogctl metrics tag-cardinality --metric kubernetes.cpu.requests
+```
+
+Kubernetes resources (CPU/Memory) per service or deployment:
+```bash
+ddogctl metrics k8s-resources \
+  --cluster tor-prod-rke2 \
+  --kube-service tap-ui-prd \
+  --from now-30m --rollup 120 \
+  [--cpu-unit mcores] [--debug]
+```
+What it shows (latest point in range):
+- CPU requests: `sum:kubernetes.cpu.requests{...}`
+- CPU limits: `sum:kubernetes.cpu.limits{...}`
+- CPU usage: `sum:kubernetes.cpu.usage.total{...}.as_rate()` (converted from nanocores/s to cores, or to mCores with `--cpu-unit mcores`)
+- Memory requests: `sum:kubernetes.memory.requests{...}`
+- Memory limits: `sum:kubernetes.memory.limits{...}`
+- Memory usage: `sum:container.memory.usage{...}` (humanized units B/KiB/MiB/GiB)
+
+Notes:
+- All aggregations use `sum` to represent the total footprint of the selected workload.
+- CPU printing avoids scientific notation; memory is auto-scaled to human units.
+
 ## Quickstart
 ```bash
 # 1) Install
