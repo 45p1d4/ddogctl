@@ -1,4 +1,10 @@
-# ddogctl
+```bash
+ddogctl metrics k8s-resources \
+  --cluster your_cluster_name \
+  --kube-service your_service_name \
+  --from now-30m --rollup 120 \
+  [--cpu-unit mcores] [--debug]
+```# ddogctl
 
 A minimal Datadog CLI inspired by kubectl, built with Typer and Rich.
 
@@ -160,7 +166,7 @@ See Datadog Service Definition API for details: https://docs.datadoghq.com/es/ap
 
 Query timeseries:
 ```bash
-ddogctl metrics query --query "avg:kubernetes.cpu.requests{cluster:tor-prod-rke2} by {kube_deployment}" --from now-1h --rollup 120 --limit 20 --spark
+ddogctl metrics query --query "avg:kubernetes.cpu.requests{cluster:your_cluster_name} by {kube_deployment}" --from now-1h --rollup 120 --limit 20 --spark
 ```
 Options:
 - `--limit`: max series to render
@@ -176,8 +182,8 @@ ddogctl metrics tag-cardinality --metric kubernetes.cpu.requests
 Kubernetes resources (CPU/Memory) per service or deployment:
 ```bash
 ddogctl metrics k8s-resources \
-  --cluster tor-prod-rke2 \
-  --kube-service tap-ui-prd \
+  --cluster your_cluster_name \
+  --kube-service your_service_name \
   --from now-30m --rollup 120 \
   [--cpu-unit mcores] [--debug]
 ```

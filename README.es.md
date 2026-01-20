@@ -179,7 +179,7 @@ API de referencia: https://docs.datadoghq.com/es/api/latest/service-definition
 Consultar series temporales:
 ```bash
 ddogctl metrics query `
-  --query "avg:kubernetes.cpu.requests{cluster:tor-prod-rke2} by {kube_deployment}" `
+  --query "avg:kubernetes.cpu.requests{cluster:your_cluster_name} by {kube_deployment}" `
   --from now-1h --rollup 120 --limit 20 --spark
 ```
 Opciones:
@@ -195,10 +195,10 @@ ddogctl metrics tag-cardinality --metric kubernetes.cpu.requests
 
 Recursos de Kubernetes (CPU/Memoria) por servicio o deployment:
 ```bash
-ddogctl metrics k8s-resources `
-  --cluster tor-prod-rke2 `
-  --kube-service tap-ui-prd `
-  --from now-30m --rollup 120 `
+ddogctl metrics k8s-resources \
+  --cluster your_cluster_name \
+  --kube-service your_service_name \
+  --from now-30m --rollup 120 \
   [--cpu-unit mcores] [--debug]
 ```
 Muestra el último punto del rango seleccionado:
