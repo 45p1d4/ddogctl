@@ -176,8 +176,8 @@ ddogctl metrics tag-cardinality --metric kubernetes.cpu.requests
 Kubernetes resources (CPU/Memory) per service or deployment:
 ```bash
 ddogctl metrics k8s-resources \
-  --cluster tor-prod-rke2 \
-  --kube-service tap-ui-prd \
+  --cluster your_cluster_name \
+  --kube-service your_service_name \
   --from now-30m --rollup 120 \
   [--cpu-unit mcores] [--debug]
 ```
