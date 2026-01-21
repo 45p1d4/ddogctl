@@ -122,6 +122,22 @@ ddogctl apm errors rate --service my-service --group-by resource_name --from now
 
 The aggregates endpoint is called with JSON:API `data.type=aggregate_request`. Count is read from `attributes.compute.c0` (or from the legacy `computes[0].value` when applicable).
 
+### Service troubleshoot
+One-shot troubleshooting view (APM error rate + p95 latency, top error resources, last 10 error logs):
+```bash
+ddogctl service troubleshoot \
+  --service checkout \
+  --env prd \
+  --from now-1h \
+  [--cluster your_cluster_name] \
+  [--debug]
+```
+What it shows:
+- Error rate and p95 latency from APM aggregates
+- Top error resources grouped by `resource_name`
+- Last 10 error logs (`service:<svc> status:error` plus `env:<env>` when provided)
+- A short heuristic summary with key signals
+
 ### Easter egg
 Print a Datadog ASCII banner:
 ```bash

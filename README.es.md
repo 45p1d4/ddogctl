@@ -134,6 +134,22 @@ ddogctl apm errors top-resources --service payments --from now-24h
 ddogctl apm errors rate --service payments --group-by resource_name --from now-1h
 ```
 
+### Service troubleshoot
+Vista de diagnóstico en un solo comando (tasa de error APM + latencia p95, top recursos con error, últimos 10 logs de error):
+```bash
+ddogctl service troubleshoot \
+  --service checkout \
+  --env prd \
+  --from now-1h \
+  [--cluster nombre_del_cluster] \
+  [--debug]
+```
+Muestra:
+- Tasa de errores y p95 de latencia desde agregados de APM
+- Principales recursos con error agrupados por `resource_name`
+- Últimos 10 logs de error (`service:<svc> status:error` y `env:<env>` cuando se proporciona; también `cluster:<name>` si se indica)
+- Un breve resumen heurístico con señales clave
+
 Filtrar por entorno (env):
 ```bash
 ddogctl apm spans list --service my-service --env prd --from now-15m

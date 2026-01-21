@@ -7,6 +7,7 @@ import typer
 
 from .api import ApiClient
 from .i18n import t
+from .options import DebugOption
 
 app = typer.Typer(
     add_completion=False,
@@ -54,6 +55,7 @@ from .commands import synthetics as synthetics_cmd  # noqa: E402
 from .commands import logs as logs_cmd  # noqa: E402
 from .commands import apm as apm_cmd  # noqa: E402
 from .commands import services as services_cmd  # noqa: E402
+from .commands import service as service_cmd  # noqa: E402
 from .commands import metrics as metrics_cmd  # noqa: E402
 from .i18n import t
 from rich.console import Console
@@ -67,6 +69,7 @@ app.add_typer(synthetics_cmd.app, name="synthetics")
 app.add_typer(logs_cmd.app, name="logs")
 app.add_typer(apm_cmd.app, name="apm")
 app.add_typer(services_cmd.app, name="services")
+app.add_typer(service_cmd.app, name="service")
 app.add_typer(metrics_cmd.app, name="metrics")
 
 _console = Console()
@@ -79,6 +82,6 @@ def _load_banner() -> str:
 
 
 @app.command("guaf", help=t("Easter egg: imprime logo ASCII de Datadog", "Easter egg: print Datadog ASCII logo"))
-def guaf() -> None:
+def guaf(debug: DebugOption = False) -> None:
     _console.print(_load_banner(), style="bold magenta")
 

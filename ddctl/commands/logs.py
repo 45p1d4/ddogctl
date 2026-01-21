@@ -9,6 +9,8 @@ from rich.table import Table
 from ..cli import get_client_from_ctx
 from ..utils_time import parse_time, to_iso8601
 from ..i18n import t
+from ..options import DebugOption
+from rich.json import JSON as RichJSON
 
 app = typer.Typer(help=t("Búsqueda de Logs", "Logs search"))
 console = Console()
@@ -43,6 +45,7 @@ def query_logs(
     service: Optional[str] = typer.Option(None, "--service", help=t("Filtrar por service", "Filter by service")),
     query: Optional[str] = typer.Option(None, "--query", help=t("Consulta adicional", "Additional query")),
     limit: int = typer.Option(50, "--limit", help=t("Límite de eventos", "Events limit"), show_default=True),
+    debug: DebugOption = False,
 ) -> None:
     # Build and execute a logs search query over the provided time range
     client = get_client_from_ctx(ctx)
@@ -61,6 +64,10 @@ def query_logs(
             "sort": "-timestamp",
         }
         data = client.post("/api/v2/logs/events/search", json=payload) or {}
+        if debug:
+            console.rule("logs search response")
+            console.print(RichJSON.from_data(data))
+            return
         items = data.get("data") or []
         table = Table(title="Logs", show_lines=False)
         table.add_column("timestamp", style="cyan", no_wrap=True)

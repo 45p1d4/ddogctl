@@ -3,9 +3,11 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.json import JSON as RichJSON
 
 from ..cli import get_client_from_ctx
 from ..i18n import t
+from ..options import DebugOption
 
 app = typer.Typer(help=t("Comandos de autenticación", "Authentication commands"))
 console = Console()
@@ -18,12 +20,15 @@ console = Console()
         "Calls GET /api/v1/validate and prints site and api_key_valid",
     ),
 )
-def status(ctx: typer.Context) -> None:
+def status(ctx: typer.Context, debug: DebugOption = False) -> None:
     # Keep runtime output minimal and language-neutral where possible
     client = get_client_from_ctx(ctx)
     try:
         data = client.get("/api/v1/validate")
         valid = bool(data.get("valid")) if isinstance(data, dict) else False
+        if debug:
+            console.rule("validate response")
+            console.print(RichJSON.from_data(data))
         console.print(
             Panel.fit(
                 f"[bold]site[/bold]: {client.site}\n[bold]api_key_valid[/bold]: {valid}",

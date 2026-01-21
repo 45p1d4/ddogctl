@@ -9,6 +9,7 @@ from rich.json import JSON
 
 from ..cli import get_client_from_ctx
 from ..i18n import t
+from ..options import DebugOption
 
 app = typer.Typer(help=t("Operaciones sobre Monitors", "Monitors operations"))
 console = Console()
@@ -26,6 +27,7 @@ def list_monitors(
     name: Optional[str] = typer.Option(
         None, "--name", help=t("Filtro por nombre (substring)", "Name filter (substring)")
     ),
+    debug: DebugOption = False,
 ) -> None:
     # Render list of monitors with optional substring filter
     client = get_client_from_ctx(ctx)
@@ -33,6 +35,9 @@ def list_monitors(
         items = client.get("/api/v1/monitor") or []
         if name:
             items = [m for m in items if name.lower() in (m.get("name", "") or "").lower()]
+        if debug:
+            console.print(JSON.from_data(items))
+            return
         table = Table(title="Monitors", show_lines=False)
         table.add_column("id", style="cyan", no_wrap=True)
         table.add_column("name", style="white")
@@ -59,6 +64,7 @@ def list_monitors(
 def mute_monitor(
     ctx: typer.Context,
     id: int = typer.Option(..., "--id", help=t("ID del monitor a silenciar", "Monitor ID to mute")),
+    debug: DebugOption = False,
 ) -> None:
     # Mute a specific monitor by ID
     client = get_client_from_ctx(ctx)

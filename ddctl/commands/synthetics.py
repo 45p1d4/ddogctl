@@ -8,6 +8,7 @@ from rich.json import JSON
 
 from ..cli import get_client_from_ctx
 from ..i18n import t
+from ..options import DebugOption
 
 app = typer.Typer(help=t("Operaciones sobre Synthetics", "Synthetics operations"))
 console = Console()
@@ -25,6 +26,7 @@ def trigger_tests(
     public_id: List[str] = typer.Option(
         ..., "--public-id", help=t("Public ID del test (repetible)", "Public ID of the test (repeatable)"), show_default=False
     ),
+    debug: DebugOption = False,
 ) -> None:
     # Trigger one or more synthetics tests by public ID
     client = get_client_from_ctx(ctx)
