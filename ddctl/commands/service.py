@@ -13,6 +13,7 @@ from ..api import ApiError, ApiClient
 from ..utils_time import parse_time, to_iso8601
 from ..i18n import t
 from ..options import DebugOption
+from ..ui import new_table, build_title
 
 # Reuse helpers from APM module
 from .apm import _build_query as _apm_build_query
@@ -92,14 +93,11 @@ def _convert_duration_to_ms(value: float) -> float:
     return v  # assume already ms
 
 
-def _render_overview_table(total_count: int, error_count: int, p95_ms: float, from_label: str, service: str, env: Optional[str]) -> None:
-    title_parts: List[str] = [f"service={service}"]
-    if env:
-        title_parts.append(f"env={env}")
-    title_parts.append(f"from={from_label}")
-    title = " | ".join(title_parts)
-
-    table = Table(title=f"APM overview ({title})", show_lines=False)
+def _render_overview_table(total_count: int, error_count: int, p95_ms: float, from_label: str, service: str, env: Optional[str], cluster: Optional[str]) -> None:
+    table = new_table(
+        "APM overview",
+        {"service": service, "env": env or "", "cluster": cluster or "", "from": from_label},
+    )
     table.add_column("metric", style="cyan", no_wrap=True)
     table.add_column("value", style="magenta", no_wrap=True)
 
@@ -111,8 +109,8 @@ def _render_overview_table(total_count: int, error_count: int, p95_ms: float, fr
     console.print(table)
 
 
-def _render_top_errors_table(buckets: List[dict]) -> None:
-    table = Table(title="Top error resources (resource_name)", show_lines=False)
+def _render_top_errors_table(buckets: List[dict], service: str, env: Optional[str], from_label: str, cluster: Optional[str]) -> None:
+    table = new_table("Top error resources (resource_name)", {"service": service, "env": env or "", "cluster": cluster or "", "from": from_label})
     table.add_column("resource_name", style="magenta")
     table.add_column("count", style="cyan", no_wrap=True)
     for b in buckets:
@@ -128,11 +126,17 @@ def _render_top_errors_table(buckets: List[dict]) -> None:
     console.print(table)
 
 
-def _render_logs_table(items: List[dict]) -> None:
+def _render_logs_table(items: List[dict], service: str, env: Optional[str], from_label: str, cluster: Optional[str]) -> None:
     if not items:
-        console.print(Panel.fit(t("No hay datos de logs en el rango seleccionado.", "No logs data in the selected range."), title="Logs", border_style="yellow"))
+        console.print(
+            Panel.fit(
+                t("No hay datos de logs en el rango seleccionado.", "No logs data in the selected range."),
+                title=build_title("Logs", {"service": service, "env": env or "", "cluster": cluster or "", "from": from_label}),
+                border_style="yellow",
+            )
+        )
         return
-    table = Table(title="Last error logs", show_lines=False)
+    table = new_table("Last error logs", {"service": service, "env": env or "", "cluster": cluster or "", "from": from_label})
     table.add_column("timestamp", style="cyan", no_wrap=True)
     table.add_column("service", style="magenta", no_wrap=True)
     table.add_column("status", style="green", no_wrap=True)
@@ -205,7 +209,8 @@ def service_troubleshoot(
         if debug:
             console.rule("APM overview payload")
             console.print(RichJSON.from_data(body_overview))
-        resp_overview = client.post("/api/v2/spans/analytics/aggregate", json=body_overview) or {}
+        with console.status("[dim]APM overview[/dim]"):
+            resp_overview = client.post("/api/v2/spans/analytics/aggregate", json=body_overview) or {}
         if debug:
             console.rule("APM overview response")
             console.print(RichJSON.from_data(resp_overview))
@@ -233,7 +238,8 @@ def service_troubleshoot(
         if debug:
             console.rule("APM errors payload")
             console.print(RichJSON.from_data(body_errors))
-        resp_errors = client.post("/api/v2/spans/analytics/aggregate", json=body_errors) or {}
+        with console.status("[dim]APM errores[/dim]"):
+            resp_errors = client.post("/api/v2/spans/analytics/aggregate", json=body_errors) or {}
         if debug:
             console.rule("APM errors response")
             console.print(RichJSON.from_data(resp_errors))
@@ -264,7 +270,8 @@ def service_troubleshoot(
         if debug:
             console.rule("APM top-resources payload")
             console.print(RichJSON.from_data(body_top))
-        resp_top = client.post("/api/v2/spans/analytics/aggregate", json=body_top) or {}
+        with console.status("[dim]APM top recursos[/dim]"):
+            resp_top = client.post("/api/v2/spans/analytics/aggregate", json=body_top) or {}
         if debug:
             console.rule("APM top-resources response")
             console.print(RichJSON.from_data(resp_top))
@@ -288,16 +295,17 @@ def service_troubleshoot(
         if debug:
             console.rule("Logs search payload")
             console.print(RichJSON.from_data(logs_payload))
-        logs_resp = client.post("/api/v2/logs/events/search", json=logs_payload) or {}
+        with console.status("[dim]Consultando logs[/dim]"):
+            logs_resp = client.post("/api/v2/logs/events/search", json=logs_payload) or {}
         if debug:
             console.rule("Logs search response")
             console.print(RichJSON.from_data(logs_resp))
         log_items = (logs_resp or {}).get("data") or []
 
         # Render
-        _render_overview_table(total_count, error_count, p95_ms, from_, service, env)
-        _render_top_errors_table(buckets_top or [])
-        _render_logs_table(log_items)
+        _render_overview_table(total_count, error_count, p95_ms, from_, service, env, cluster)
+        _render_top_errors_table(buckets_top or [], service, env, from_, cluster)
+        _render_logs_table(log_items, service, env, from_, cluster)
 
         # Heuristic summary
         err_rate = (error_count / max(1, total_count)) if total_count else 0.0

@@ -33,7 +33,8 @@ def trigger_tests(
     try:
         tests = [{"public_id": pid} for pid in public_id]
         payload = {"tests": tests}
-        data = client.post("/api/v1/synthetics/tests/trigger", json=payload)
+        with console.status("[dim]Ejecutando tests[/dim]"):
+            data = client.post("/api/v1/synthetics/tests/trigger", json=payload)
         console.print(JSON.from_data(data))
     except Exception as exc:
         raise typer.Exit(code=1) from exc

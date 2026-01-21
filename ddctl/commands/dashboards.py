@@ -27,7 +27,8 @@ def get_dashboard(
     # Fetch dashboard by ID
     client = get_client_from_ctx(ctx)
     try:
-        data = client.get(f"/api/v1/dashboard/{id}")
+        with console.status("[dim]Cargando dashboard[/dim]"):
+            data = client.get(f"/api/v1/dashboard/{id}")
         console.print(JSON.from_data(data))
     except Exception as exc:
         if debug and isinstance(exc, ApiError):

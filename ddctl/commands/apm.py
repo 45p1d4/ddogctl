@@ -13,6 +13,7 @@ from ..cli import get_client_from_ctx
 from ..api import ApiError
 from ..utils_time import parse_time, to_iso8601
 from ..i18n import t
+from ..ui import new_table, build_title
 
 app = typer.Typer(help=t("Operaciones de APM", "APM operations"))
 console = Console()
@@ -171,17 +172,16 @@ def _render_spans_table(items: List[dict]) -> None:
         if service:
             service_set.add(service)
 
-    # Title composition with common env/service
-    title_parts = ["Spans"]
+    # Title composition with common env/service/date
+    metadata = {}
     if len(date_set) == 1:
-        title_parts.append(f"date={next(iter(date_set))}")
+        metadata["date"] = next(iter(date_set))
     if len(env_set) == 1:
-        title_parts.append(f"env={next(iter(env_set))}")
+        metadata["env"] = next(iter(env_set))
     if len(service_set) == 1:
-        title_parts.append(f"service={next(iter(service_set))}")
-    title = " (" + ", ".join(title_parts[1:]) + ")" if len(title_parts) > 1 else "Spans"
+        metadata["service"] = next(iter(service_set))
 
-    table = Table(title="Spans" + ("" if len(title_parts) == 1 else " " + title), show_lines=False)
+    table = new_table("Spans", metadata)
     table.add_column("timestamp", style="cyan", no_wrap=True)
     # Determine column presence (hide columns that are blank across all rows)
     any_env = any(r[1] for r in processed_rows)
@@ -260,7 +260,8 @@ def spans_list(
             "page[limit]": limit,
             "sort": sort,
         }
-        data = client.get("/api/v2/spans/events", params=params) or {}
+        with console.status("[dim]Cargando spans[/dim]"):
+            data = client.get("/api/v2/spans/events", params=params) or {}
         items = data.get("data") or []
         if debug and items:
             console.rule("raw item (GET /spans/events)")
@@ -312,7 +313,8 @@ def spans_search(
                 },
             }
         }
-        data = client.post("/api/v2/spans/events/search", json=payload) or {}
+        with console.status("[dim]Buscando spans[/dim]"):
+            data = client.post("/api/v2/spans/events/search", json=payload) or {}
         items = data.get("data") or []
         if debug and items:
             console.rule("raw item (POST /spans/events/search)")
@@ -381,12 +383,13 @@ def errors_top_resources(
         if debug:
             console.rule("aggregate payload")
             console.print(RichJSON.from_data(body))
-        data = client.post("/api/v2/spans/analytics/aggregate", json=body) or {}
+        with console.status("[dim]Calculando agregados de errores[/dim]"):
+            data = client.post("/api/v2/spans/analytics/aggregate", json=body) or {}
         if debug:
             console.rule("aggregate response")
             console.print(RichJSON.from_data(data))
         buckets = _extract_buckets(data)
-        table = Table(title="Top resources by error count", show_lines=False)
+        table = new_table("Top resources by error count", {"service": service, "env": env or "", "from": from_})
         table.add_column("resource_name", style="magenta")
         table.add_column("count", style="cyan", no_wrap=True)
         for b in buckets:
@@ -452,12 +455,13 @@ def errors_rate(
         if debug:
             console.rule("aggregate payload")
             console.print(RichJSON.from_data(body))
-        data = client.post("/api/v2/spans/analytics/aggregate", json=body) or {}
+        with console.status("[dim]Calculando agregados de errores[/dim]"):
+            data = client.post("/api/v2/spans/analytics/aggregate", json=body) or {}
         if debug:
             console.rule("aggregate response")
             console.print(RichJSON.from_data(data))
         buckets = _extract_buckets(data)
-        table = Table(title=f"Error count by {group_by}", show_lines=False)
+        table = new_table(f"Error count by {group_by}", {"service": service, "env": env or "", "from": from_})
         table.add_column(group_by, style="magenta")
         table.add_column("count", style="cyan", no_wrap=True)
         for b in buckets:

@@ -5,6 +5,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+from ..ui import new_table
 from rich.json import JSON
 
 from ..cli import get_client_from_ctx
@@ -32,13 +33,14 @@ def list_monitors(
     # Render list of monitors with optional substring filter
     client = get_client_from_ctx(ctx)
     try:
-        items = client.get("/api/v1/monitor") or []
+        with console.status("[dim]Cargando monitores[/dim]"):
+            items = client.get("/api/v1/monitor") or []
         if name:
             items = [m for m in items if name.lower() in (m.get("name", "") or "").lower()]
         if debug:
             console.print(JSON.from_data(items))
             return
-        table = Table(title="Monitors", show_lines=False)
+        table = new_table("Monitors")
         table.add_column("id", style="cyan", no_wrap=True)
         table.add_column("name", style="white")
         table.add_column("type", style="magenta", no_wrap=True)
@@ -69,7 +71,8 @@ def mute_monitor(
     # Mute a specific monitor by ID
     client = get_client_from_ctx(ctx)
     try:
-        data = client.post(f"/api/v1/monitor/{id}/mute", json={})
+        with console.status("[dim]Silenciando monitor[/dim]"):
+            data = client.post(f"/api/v1/monitor/{id}/mute", json={})
         console.print(JSON.from_data(data))
     except Exception as exc:
         raise typer.Exit(code=1) from exc

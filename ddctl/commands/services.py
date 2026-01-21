@@ -8,6 +8,7 @@ import yaml
 from rich.console import Console
 from rich.json import JSON as RichJSON
 from rich.table import Table
+from ..ui import new_table
 
 from ..cli import get_client_from_ctx
 from ..i18n import t
@@ -74,7 +75,7 @@ def _build_entity_payload(
 
 
 def _render_entities_table(items: list[dict]) -> None:
-    table = Table(title="Service Catalog", show_lines=False)
+    table = new_table("Service Catalog")
     table.add_column("service", style="magenta", no_wrap=True)
     table.add_column("owner", style="cyan")
     table.add_column("tier", style="yellow")
@@ -128,7 +129,8 @@ def apply_service(
         console.print(RichJSON.from_data(payload))
 
     try:
-        resp = client.post("/api/v2/catalog/entity", json=payload)
+        with console.status("[dim]Aplicando servicio[/dim]"):
+            resp = client.post("/api/v2/catalog/entity", json=payload)
     
         if debug:
             console.print(RichJSON.from_data(resp))
@@ -166,7 +168,8 @@ def get_service(
     client = get_client_from_ctx(ctx)
 
     try:
-        resp = client.get("/api/v2/catalog/entity", params={"filter[name]": service})
+        with console.status("[dim]Obteniendo servicio[/dim]"):
+            resp = client.get("/api/v2/catalog/entity", params={"filter[name]": service})
         if debug:
             console.print(RichJSON.from_data(resp))
             return
@@ -190,7 +193,8 @@ def list_services(
     client = get_client_from_ctx(ctx)
 
     try:
-        resp = client.get("/api/v2/catalog/entity")
+        with console.status("[dim]Listando servicios[/dim]"):
+            resp = client.get("/api/v2/catalog/entity")
         if debug:
             console.print(RichJSON.from_data(resp))
             return

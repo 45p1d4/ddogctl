@@ -10,6 +10,7 @@ from ..cli import get_client_from_ctx
 from ..utils_time import parse_time
 from ..i18n import t
 from ..api import ApiError
+from ..ui import new_table
 
 app = typer.Typer(help=t("Operaciones de Métricas", "Metrics operations"))
 console = Console()
@@ -38,7 +39,8 @@ def _query_last_point(client, q: str, start_s: int, end_s: int, rollup: Optional
     params = {"from": start_s, "to": end_s, "query": q}
     if rollup:
         params["rollup"] = rollup
-    resp = client.get("/api/v1/query", params=params) or {}
+    with console.status(f"[dim]Consultando métricas[/dim] {q}"):
+        resp = client.get("/api/v1/query", params=params) or {}
     if debug:
         try:
             from rich.json import JSON as RichJSON
@@ -88,7 +90,8 @@ def metrics_query(
         params = {"from": start, "to": end, "query": query}
         if rollup:
             params["rollup"] = rollup
-        resp = client.get("/api/v1/query", params=params) or {}
+        with console.status("[dim]Consultando series temporales[/dim]"):
+            resp = client.get("/api/v1/query", params=params) or {}
         if debug:
             from rich.json import JSON as RichJSON
             console.print(RichJSON.from_data(resp))
@@ -137,7 +140,7 @@ def metrics_query(
 
         series_sorted = sorted(series, key=_last_value, reverse=True)[:limit]
 
-        table = Table(title="Metrics (latest point per series)", show_lines=False)
+        table = new_table("Metrics (latest point per series)", {"from": from_, "to": to})
         table.add_column("metric", style="magenta")
         table.add_column(scope_tag or "scope", style="cyan")
         table.add_column("pts", style="white", no_wrap=True)
@@ -244,7 +247,7 @@ def k8s_resources(
         mem_lim = _query_last_point(client, q_mem_lim, start, end, rollup, debug)
         mem_use = _query_last_point(client, q_mem_use, start, end, rollup, debug)
 
-        table = Table(title=f"K8s resources ({kube_service or kube_deployment} @ {cluster})", show_lines=False)
+        table = new_table("K8s resources", {"cluster": cluster, "service": kube_service or kube_deployment or "", "from": from_, "to": to})
         table.add_column("resource", style="magenta")
         table.add_column("requests", style="cyan", no_wrap=True)
         table.add_column("limits", style="cyan", no_wrap=True)

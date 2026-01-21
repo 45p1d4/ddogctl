@@ -37,7 +37,8 @@ def create_incident(
                 },
             }
         }
-        data = client.post("/api/v2/incidents", json=payload)
+        with console.status("[dim]Creando incidente[/dim]"):
+            data = client.post("/api/v2/incidents", json=payload)
         console.print(JSON.from_data(data))
     except Exception as exc:
         raise typer.Exit(code=1) from exc

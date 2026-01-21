@@ -11,6 +11,7 @@ from ..utils_time import parse_time, to_iso8601
 from ..i18n import t
 from ..options import DebugOption
 from rich.json import JSON as RichJSON
+from ..ui import new_table
 
 app = typer.Typer(help=t("Búsqueda de Logs", "Logs search"))
 console = Console()
@@ -63,13 +64,14 @@ def query_logs(
             "page": {"limit": limit},
             "sort": "-timestamp",
         }
-        data = client.post("/api/v2/logs/events/search", json=payload) or {}
+        with console.status("[dim]Buscando logs[/dim]"):
+            data = client.post("/api/v2/logs/events/search", json=payload) or {}
         if debug:
             console.rule("logs search response")
             console.print(RichJSON.from_data(data))
             return
         items = data.get("data") or []
-        table = Table(title="Logs", show_lines=False)
+        table = new_table("Logs", {"service": service or "", "from": from_, "to": to})
         table.add_column("timestamp", style="cyan", no_wrap=True)
         table.add_column("service", style="magenta", no_wrap=True)
         table.add_column("status", style="green", no_wrap=True)
