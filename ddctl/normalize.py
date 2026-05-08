@@ -136,6 +136,29 @@ def normalize_span(raw: dict) -> dict:
     return out
 
 
+def normalize_trace_span(raw: dict) -> dict:
+    """
+    Normalize a span returned by `/api/v2/spans/events/search` for trace-level
+    inspection. Unlike `normalize_span` (which is tuned for cross-span lists),
+    this keeps the parent/child relationship and the precise duration so the
+    caller can reconstruct the call tree.
+    """
+    a = (raw or {}).get("attributes") or {}
+    custom = a.get("custom") or {}
+    dur_ns = custom.get("duration") or a.get("duration") or 0
+    return {
+        "span_id": a.get("span_id") or raw.get("id"),
+        "parent_id": a.get("parent_id") or "",
+        "service": a.get("service", ""),
+        "operation": a.get("operation_name", ""),
+        "resource": trunc(a.get("resource_name") or "", MAX_RESOURCE),
+        "type": a.get("type", ""),
+        "status": a.get("status", ""),
+        "dur_ms": round(float(dur_ns or 0) / 1e6, 2),
+        "start": a.get("start_timestamp"),
+    }
+
+
 def normalize_dashboard_summary(raw: dict) -> dict:
     return {
         "id": raw.get("id"),
@@ -290,6 +313,12 @@ DEFAULT_FIELDS: Dict[str, List[str]] = {
     "spans.search": ["ts", "service", "resource", "http_status", "dur_ms", "err"],
     "errors.top_resources": ["resource", "count"],
     "errors.rate": ["key", "count"],
+    "trace.get": [
+        "span_id", "parent_id", "service", "operation", "resource", "type",
+        "status", "dur_ms", "start",
+    ],
+    "spans.aggregate": ["key", "count", "p50_ms", "p95_ms", "p99_ms"],
+    "trace.timeseries": ["ts", "count", "p50_ms", "p95_ms", "p99_ms"],
     "service.troubleshoot": [
         "service", "env", "window", "err_rate_pct", "req_total", "req_err",
         "lat_ms", "top_err_resources", "top_err_msgs",
