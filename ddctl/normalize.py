@@ -325,6 +325,8 @@ DEFAULT_FIELDS: Dict[str, List[str]] = {
     ],
     "dashboards.get": ["id", "title", "url", "modified_at", "widget_count"],
     "incidents.create": ["id", "title", "severity", "state"],
+    "incidents.list": ["id", "title", "severity", "state", "created"],
+    "incidents.get": ["id", "title", "severity", "state", "created"],
     "synthetics.trigger": ["batch_id", "triggered_count", "locations"],
     "metrics.query": ["metric", "scope", "n_points", "last_ts", "last", "avg", "min", "max"],
     "metrics.k8s": ["resource", "requests", "limits", "usage"],
@@ -342,4 +344,12 @@ DEFAULT_FIELDS: Dict[str, List[str]] = {
     "downtimes.list": ["id", "scope", "active", "start", "end", "message"],
     "downtimes.schedule": ["id", "scope", "start", "end", "message"],
     "downtimes.cancel": ["id", "cancelled"],
+    # url.* commands compose deep links to the DD UI without hitting the API.
+    "url.trace": ["url", "trace_id", "from", "to"],
+    "url.explorer": ["url", "query", "from", "to"],
+    "url.service": ["url", "service", "env", "from", "to"],
+    "url.logs": ["url", "query", "from", "to"],
+    "url.monitor": ["url", "id"],
+    "url.dashboard": ["url", "id"],
+    "url.incident": ["url", "id"],
 }
