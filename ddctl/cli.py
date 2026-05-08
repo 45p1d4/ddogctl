@@ -69,6 +69,7 @@ from .commands import service as service_cmd  # noqa: E402
 from .commands import metrics as metrics_cmd  # noqa: E402
 from .commands import rum as rum_cmd  # noqa: E402
 from .commands import hosts as hosts_cmd  # noqa: E402
+from .commands import downtimes as downtimes_cmd  # noqa: E402
 from .i18n import t
 from rich.console import Console
 from importlib import resources as importlib_resources
@@ -85,6 +86,7 @@ app.add_typer(service_cmd.app, name="service")
 app.add_typer(metrics_cmd.app, name="metrics")
 app.add_typer(rum_cmd.app, name="rum")
 app.add_typer(hosts_cmd.app, name="hosts")
+app.add_typer(downtimes_cmd.app, name="downtimes")
 
 _console = Console()
 
