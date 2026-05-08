@@ -325,8 +325,16 @@ DEFAULT_FIELDS: Dict[str, List[str]] = {
     ],
     "dashboards.get": ["id", "title", "url", "modified_at", "widget_count"],
     "incidents.create": ["id", "title", "severity", "state"],
+    "incidents.create.dry_run": [
+        "title", "severity", "service", "team", "fields_set",
+        "customer_impacted", "notification_count",
+    ],
     "incidents.list": ["id", "title", "severity", "state", "created"],
     "incidents.get": ["id", "title", "severity", "state", "created"],
+    "incidents.fields": [
+        "severities", "detection_methods_common", "detection_methods_note",
+        "teams", "teams_count", "teams_status", "teams_note",
+    ],
     "synthetics.trigger": ["batch_id", "triggered_count", "locations"],
     "metrics.query": ["metric", "scope", "n_points", "last_ts", "last", "avg", "min", "max"],
     "metrics.k8s": ["resource", "requests", "limits", "usage"],

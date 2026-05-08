@@ -17,6 +17,23 @@ app = typer.Typer(help=t("Operaciones sobre Incidents", "Incidents operations"))
 console = Console()
 
 
+# Datadog accepts these severities for v2 incidents (constant across orgs).
+VALID_SEVERITIES = ["UNKNOWN", "SEV-1", "SEV-2", "SEV-3", "SEV-4", "SEV-5"]
+
+# These are the most common detection_method dropdown values shipped by
+# Datadog by default. The dropdown is per-org configurable, so this list is
+# only a hint — the API will reject any value that isn't in the org's
+# actual dropdown definition. `incidents fields` surfaces this caveat.
+COMMON_DETECTION_METHODS = [
+    "Alert",
+    "Application Logs",
+    "Customer",
+    "Employee",
+    "Monitor",
+    "Other",
+]
+
+
 # --------------------------------------------------------------------------
 # create
 # --------------------------------------------------------------------------
@@ -73,6 +90,11 @@ def create_incident(
         help=t("Handle a notificar (repetible, p.ej. @oncall@example.com)",
                "Notification handle (repeatable, e.g., @oncall@example.com)"),
     ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help=t("Imprime el payload sin POST (no crea incident)",
+               "Print payload without POST (does not create the incident)"),
+    ),
     debug: DebugOption = False,
 ) -> None:
     """
@@ -81,6 +103,13 @@ def create_incident(
     """
     client = get_client_from_ctx(ctx)
     try:
+        # Light client-side sanity checks — catch the obvious mistakes
+        # without a network round-trip.
+        if severity and severity not in VALID_SEVERITIES:
+            raise typer.BadParameter(
+                f"--severity must be one of {VALID_SEVERITIES}, got {severity!r}"
+            )
+
         attrs: dict = {"title": title}
 
         # severity is set via the top-level attribute; the v2 API also accepts
@@ -110,6 +139,27 @@ def create_incident(
             attrs["notification_handles"] = [{"display_name": h, "handle": h} for h in notification]
 
         payload = {"data": {"type": "incidents", "attributes": attrs}}
+
+        if dry_run:
+            # Emit the would-be payload as a normalized preview; nothing is sent.
+            preview = {
+                "title": title,
+                "severity": severity,
+                "service": list(service) if service else [],
+                "team": list(team) if team else [],
+                "fields_set": list((attrs.get("fields") or {}).keys()),
+                "customer_impacted": bool(customer_impact),
+                "notification_count": len(notification or []),
+            }
+            emit(
+                ctx, "incidents.create.dry_run",
+                preview,
+                raw=payload,
+                meta={"dry_run": True},
+                table_renderer=lambda: console.print(JSON.from_data(payload)),
+            )
+            return
+
         with console.status("[dim]Creando incidente[/dim]"):
             data = client.post("/api/v2/incidents", json=payload) or {}
         item = (data.get("data") or {}) if isinstance(data, dict) else {}
@@ -228,3 +278,76 @@ def get_incident(
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
         raise typer.Exit(code=1) from exc
+
+
+# --------------------------------------------------------------------------
+# fields — discovery of valid dropdown values for incident creation
+# --------------------------------------------------------------------------
+
+@app.command(
+    "fields",
+    help=t(
+        "Lista valores válidos para los campos de incident creation",
+        "List valid values for incident creation fields",
+    ),
+)
+def list_fields(
+    ctx: typer.Context,
+    debug: DebugOption = False,
+) -> None:
+    """
+    Surfaces the valid values for the dropdown fields the incident creation
+    endpoint validates against. Severities are static (Datadog product-wide).
+    Detection methods and teams are per-org dropdowns; we fetch teams via
+    /api/v2/team and fall back gracefully if the API key lacks `teams_read`
+    (HTTP 403). For detection methods we ship a hint with the common defaults
+    — the org may extend or rename them.
+    """
+    client = get_client_from_ctx(ctx)
+    teams: List[str] = []
+    teams_status = "ok"
+    try:
+        with console.status("[dim]Listando teams[/dim]"):
+            r = client.get("/api/v2/team", params={"page[size]": 100})
+        for t in (r or {}).get("data") or []:
+            handle = (t.get("attributes") or {}).get("handle")
+            if handle:
+                teams.append(handle)
+    except ApiError as e:
+        teams_status = f"unavailable (HTTP {e.status_code} — needs teams_read scope)"
+    except Exception as e:
+        teams_status = f"unavailable ({e.__class__.__name__})"
+
+    result = {
+        "severities": VALID_SEVERITIES,
+        "detection_methods_common": COMMON_DETECTION_METHODS,
+        "detection_methods_note": (
+            "Detection methods are a per-org dropdown. The list above is "
+            "Datadog's default — your org may have customized it. The API "
+            "rejects values not in the active dropdown."
+        ),
+        "teams": sorted(teams),
+        "teams_count": len(teams),
+        "teams_status": teams_status,
+        "teams_note": (
+            "Teams listed are valid values for `incidents create --team <handle>`. "
+            "An empty list means the API key cannot read teams; verify a team "
+            "by trying `incidents create --dry-run` and watching for HTTP 400."
+        ),
+    }
+
+    def _render() -> None:
+        console.print(f"[bold]Severities:[/bold] {', '.join(VALID_SEVERITIES)}")
+        console.print(f"[bold]Detection methods (common):[/bold] {', '.join(COMMON_DETECTION_METHODS)}")
+        console.print(f"[dim]{result['detection_methods_note']}[/dim]")
+        console.print()
+        console.print(f"[bold]Teams ({result['teams_count']}):[/bold] [{result['teams_status']}]")
+        if teams:
+            for h in sorted(teams):
+                console.print(f"  - {h}")
+
+    emit(
+        ctx, "incidents.fields", result,
+        meta={"teams_status": teams_status},
+        table_renderer=_render,
+    )
