@@ -13,7 +13,14 @@ from ..api import ApiError, ApiClient
 from ..utils_time import parse_time, to_iso8601
 from ..i18n import t
 from ..options import DebugOption
-from ..ui import new_table, build_title
+from ..normalize import (
+    aggregate_compute as _aggregate_compute,
+    bucket_count as _bucket_count,
+    duration_to_ms as _duration_to_ms,
+    normalize_log,
+    trunc as _trunc,
+)
+from ..ui import emit, new_table, build_title
 
 # Reuse helpers from APM module
 from .apm import _build_query as _apm_build_query
@@ -73,24 +80,11 @@ def _safe_get_compute_values(resp: dict) -> dict:
 
 
 def _convert_duration_to_ms(value: float) -> float:
-    """
-    Heuristic conversion:
-    - If it looks like nanoseconds (very large), convert ns -> ms
-    - Else if it looks like microseconds, convert us -> ms
-    - Else assume already ms or seconds-ish; if < 10, assume seconds and convert to ms.
-    """
+    """Span aggregate duration is always nanoseconds — convert ns → ms."""
     try:
-        v = float(value)
+        return round(float(value) / 1_000_000.0, 2) if value else 0.0
     except Exception:
         return 0.0
-    if v > 10_000_000:  # likely nanoseconds
-        return v / 1_000_000.0
-    if v > 10_000:  # likely microseconds
-        return v / 1000.0
-    # If small number, assume seconds -> ms
-    if v <= 10:
-        return v * 1000.0
-    return v  # assume already ms
 
 
 def _render_overview_table(total_count: int, error_count: int, p95_ms: float, from_label: str, service: str, env: Optional[str], cluster: Optional[str]) -> None:
@@ -189,7 +183,7 @@ def service_troubleshoot(
         payload_to = to_iso8601(parse_time("now"))
         extra = _cluster_extra(cluster)
 
-        # APM overview: totals + p95
+        # APM overview: totals + p50/p95/p99
         body_overview = {
             "data": {
                 "type": "aggregate_request",
@@ -201,7 +195,9 @@ def service_troubleshoot(
                     },
                     "compute": [
                         {"aggregation": "count"},  # c0
-                        {"aggregation": "pc95", "metric": "duration"},  # c1
+                        {"aggregation": "pc50", "metric": "@duration"},  # c1
+                        {"aggregation": "pc95", "metric": "@duration"},  # c2
+                        {"aggregation": "pc99", "metric": "@duration"},  # c3
                     ],
                 },
             }
@@ -216,8 +212,9 @@ def service_troubleshoot(
             console.print(RichJSON.from_data(resp_overview))
         computes_ov = _safe_get_compute_values(resp_overview)
         total_count = int(computes_ov.get("c0") or 0)
-        p95_raw = float(computes_ov.get("c1") or 0.0)
-        p95_ms = _convert_duration_to_ms(p95_raw)
+        p50_ms = _convert_duration_to_ms(float(computes_ov.get("c1") or 0.0))
+        p95_ms = _convert_duration_to_ms(float(computes_ov.get("c2") or 0.0))
+        p99_ms = _convert_duration_to_ms(float(computes_ov.get("c3") or 0.0))
 
         # APM errors: count
         body_errors = {
@@ -302,27 +299,61 @@ def service_troubleshoot(
             console.print(RichJSON.from_data(logs_resp))
         log_items = (logs_resp or {}).get("data") or []
 
-        # Render
-        _render_overview_table(total_count, error_count, p95_ms, from_, service, env, cluster)
-        _render_top_errors_table(buckets_top or [], service, env, from_, cluster)
-        _render_logs_table(log_items, service, env, from_, cluster)
-
-        # Heuristic summary
+        # Heuristic summary helpers
         err_rate = (error_count / max(1, total_count)) if total_count else 0.0
         top_pairs: List[Tuple[str, int]] = []
+        top_err_resources: List[dict] = []
         for b in buckets_top or []:
             ref = b.get("attributes") or b
             res = (ref.get("by") or {}).get("resource_name", "")
-            compute_obj = ref.get("compute") or {}
-            if isinstance(compute_obj, dict) and "c0" in compute_obj:
-                cnt = int(compute_obj.get("c0") or 0)
-            else:
-                computes = ref.get("computes") or [{}]
-                cnt = int((computes[0] or {}).get("value") or 0)
+            cnt = _bucket_count(b)
             if res:
                 top_pairs.append((str(res), cnt))
-        summary_text = _heuristic_summary(err_rate, p95_ms, top_pairs)
-        console.print(Panel.fit(summary_text, title="Resumen", border_style="blue"))
+                pct = round((cnt / max(1, error_count)) * 100, 1) if error_count else 0.0
+                top_err_resources.append({
+                    "name": _trunc(res, 80),
+                    "count": cnt,
+                    "pct": pct,
+                })
+        # Aggregate top error messages from log sample
+        msg_counts: dict[str, int] = {}
+        for it in log_items[:50]:  # cap iteration
+            n = normalize_log(it)
+            msg = n.get("msg") or ""
+            if not msg:
+                continue
+            msg_counts[msg] = msg_counts.get(msg, 0) + 1
+        top_err_msgs = [
+            {"msg": m, "count": c}
+            for m, c in sorted(msg_counts.items(), key=lambda kv: kv[1], reverse=True)[:5]
+        ]
+
+        result = {
+            "service": service,
+            "env": env,
+            "window": f"{from_}..now",
+            "err_rate_pct": round(err_rate * 100, 2),
+            "req_total": total_count,
+            "req_err": error_count,
+            "lat_ms": {"p50": p50_ms, "p95": p95_ms, "p99": p99_ms},
+            "top_err_resources": top_err_resources[:5],
+            "top_err_msgs": top_err_msgs,
+        }
+
+        def _render() -> None:
+            _render_overview_table(total_count, error_count, p95_ms, from_, service, env, cluster)
+            _render_top_errors_table(buckets_top or [], service, env, from_, cluster)
+            _render_logs_table(log_items, service, env, from_, cluster)
+            summary_text = _heuristic_summary(err_rate, p95_ms, top_pairs)
+            console.print(Panel.fit(summary_text, title="Resumen", border_style="blue"))
+
+        full_payload = {
+            "overview": resp_overview,
+            "errors": resp_errors,
+            "top_resources": resp_top,
+            "logs": logs_resp,
+        }
+        emit(ctx, "service.troubleshoot", result, raw=full_payload, table_renderer=_render)
 
     except Exception as exc:
         if debug:

@@ -30,11 +30,21 @@ def main(
     config: Optional[Path] = typer.Option(
         None, "--config", help=t("Ruta al archivo de configuración YAML", "Path to YAML config file")
         ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j",
+        help=t("Emitir JSON en stdout (suprime tablas)", "Emit JSON to stdout (suppress tables)"),
+    ),
+    full: bool = typer.Option(
+        False, "--full",
+        help=t("Emitir payload Datadog completo sin whitelist (con --json)", "Emit raw Datadog payload without whitelist (with --json)"),
+    ),
 ) -> None:
     # Global options only stored in context
     _ensure_ctx(ctx)
     ctx.obj["context_name"] = context
     ctx.obj["config_path"] = str(config) if config else None
+    ctx.obj["json"] = json_output
+    ctx.obj["full"] = full
 
 
 def get_client_from_ctx(ctx: typer.Context) -> ApiClient:
@@ -57,6 +67,10 @@ from .commands import apm as apm_cmd  # noqa: E402
 from .commands import services as services_cmd  # noqa: E402
 from .commands import service as service_cmd  # noqa: E402
 from .commands import metrics as metrics_cmd  # noqa: E402
+from .commands import rum as rum_cmd  # noqa: E402
+from .commands import hosts as hosts_cmd  # noqa: E402
+from .commands import downtimes as downtimes_cmd  # noqa: E402
+from .commands import url as url_cmd  # noqa: E402
 from .i18n import t
 from rich.console import Console
 from importlib import resources as importlib_resources
@@ -71,6 +85,10 @@ app.add_typer(apm_cmd.app, name="apm")
 app.add_typer(services_cmd.app, name="services")
 app.add_typer(service_cmd.app, name="service")
 app.add_typer(metrics_cmd.app, name="metrics")
+app.add_typer(rum_cmd.app, name="rum")
+app.add_typer(hosts_cmd.app, name="hosts")
+app.add_typer(downtimes_cmd.app, name="downtimes")
+app.add_typer(url_cmd.app, name="url")
 
 _console = Console()
 

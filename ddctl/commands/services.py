@@ -13,6 +13,8 @@ from ..ui import new_table
 from ..cli import get_client_from_ctx
 from ..i18n import t
 from ..api import ApiError
+from ..normalize import normalize_catalog_entity
+from ..ui import emit
 
 app = typer.Typer(help=t("Service Catalog (Software Catalog v3)", "Service Catalog (Software Catalog v3)"))
 console = Console()
@@ -131,17 +133,20 @@ def apply_service(
     try:
         with console.status("[dim]Aplicando servicio[/dim]"):
             resp = client.post("/api/v2/catalog/entity", json=payload)
-    
-        if debug:
-            console.print(RichJSON.from_data(resp))
-        else:
-            console.print(
-                t(
-                    SUCCESS_MSG["es"].format(service=service),
-                    SUCCESS_MSG["en"].format(service=service),
+
+        def _render() -> None:
+            if debug:
+                console.print(RichJSON.from_data(resp))
+            else:
+                console.print(
+                    t(
+                        SUCCESS_MSG["es"].format(service=service),
+                        SUCCESS_MSG["en"].format(service=service),
+                    )
                 )
-            )
-    
+
+        emit(ctx, "services.apply", {"name": service, "applied": True}, raw=resp, table_renderer=_render)
+
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red]")
@@ -169,13 +174,17 @@ def get_service(
 
     try:
         with console.status("[dim]Obteniendo servicio[/dim]"):
-            resp = client.get("/api/v2/catalog/entity", params={"filter[name]": service})
-        if debug:
-            console.print(RichJSON.from_data(resp))
-            return
-
+            resp = client.get("/api/v2/catalog/entity", params={"filter[name]": service}) or {}
         items = resp.get("data", [])
-        _render_entities_table(items)
+        normalized = [normalize_catalog_entity(it) for it in items]
+
+        def _render() -> None:
+            if debug:
+                console.print(RichJSON.from_data(resp))
+                return
+            _render_entities_table(items)
+
+        emit(ctx, "services.get", normalized, raw=resp, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
@@ -194,13 +203,17 @@ def list_services(
 
     try:
         with console.status("[dim]Listando servicios[/dim]"):
-            resp = client.get("/api/v2/catalog/entity")
-        if debug:
-            console.print(RichJSON.from_data(resp))
-            return
-
+            resp = client.get("/api/v2/catalog/entity") or {}
         items = resp.get("data", [])
-        _render_entities_table(items)
+        normalized = [normalize_catalog_entity(it) for it in items]
+
+        def _render() -> None:
+            if debug:
+                console.print(RichJSON.from_data(resp))
+                return
+            _render_entities_table(items)
+
+        emit(ctx, "services.list", normalized, raw=resp, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")

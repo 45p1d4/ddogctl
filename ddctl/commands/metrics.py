@@ -10,7 +10,7 @@ from ..cli import get_client_from_ctx
 from ..utils_time import parse_time
 from ..i18n import t
 from ..api import ApiError
-from ..ui import new_table
+from ..ui import emit, new_table
 
 app = typer.Typer(help=t("Operaciones de Métricas", "Metrics operations"))
 console = Console()
@@ -95,7 +95,6 @@ def metrics_query(
         if debug:
             from rich.json import JSON as RichJSON
             console.print(RichJSON.from_data(resp))
-            return
         series = resp.get("series") or []
 
         def _extract_scope(s: dict) -> str:
@@ -140,6 +139,31 @@ def metrics_query(
 
         series_sorted = sorted(series, key=_last_value, reverse=True)[:limit]
 
+        # Build normalized rows for JSON contract
+        normalized_rows = []
+        from datetime import datetime as _dt, timezone as _tz
+        for s in series_sorted:
+            metric = s.get("metric", "")
+            scope = _extract_scope(s)
+            points = s.get("pointlist") or []
+            row: dict = {"metric": str(metric), "scope": scope, "n_points": len(points)}
+            if points:
+                ts_ms, val = points[-1]
+                try:
+                    row["last_ts"] = _dt.fromtimestamp(ts_ms / 1000.0, tz=_tz.utc).strftime("%H:%M:%S")
+                except Exception:
+                    row["last_ts"] = str(int(ts_ms / 1000))
+                try:
+                    row["last"] = round(float(val), 4)
+                except Exception:
+                    row["last"] = val
+                vs = [p[1] for p in points if p and isinstance(p, list)]
+                if vs:
+                    row["avg"] = round(sum(vs) / len(vs), 4)
+                    row["min"] = round(min(vs), 4)
+                    row["max"] = round(max(vs), 4)
+            normalized_rows.append(row)
+
         table = new_table("Metrics (latest point per series)", {"from": from_, "to": to})
         table.add_column("metric", style="magenta")
         table.add_column(scope_tag or "scope", style="cyan")
@@ -181,7 +205,15 @@ def metrics_query(
             if spark:
                 row.append(_sparkline(points))
             table.add_row(*row)
-        console.print(table)
+
+        emit(
+            ctx,
+            "metrics.query",
+            normalized_rows,
+            raw=resp,
+            meta={"from": from_, "to": to, "query": query},
+            table_renderer=lambda: console.print(table),
+        )
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
@@ -265,7 +297,18 @@ def k8s_resources(
 
         table.add_row("cpu", fmt(cpu_req, "cores"), fmt(cpu_lim, "cores"), fmt(cpu_use, "cores"))
         table.add_row("memory", fmt(mem_req, "bytes"), fmt(mem_lim, "bytes"), fmt(mem_use, "bytes"))
-        console.print(table)
+
+        rows = [
+            {"resource": "cpu", "requests": cpu_req, "limits": cpu_lim, "usage": cpu_use, "unit": "cores"},
+            {"resource": "memory", "requests": mem_req, "limits": mem_lim, "usage": mem_use, "unit": "bytes"},
+        ]
+        emit(
+            ctx,
+            "metrics.k8s",
+            rows,
+            meta={"cluster": cluster, "kube_service": kube_service, "kube_deployment": kube_deployment, "from": from_, "to": to},
+            table_renderer=lambda: console.print(table),
+        )
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
@@ -294,25 +337,33 @@ def metrics_tag_cardinality(
         if debug:
             from rich.json import JSON as RichJSON
             console.print(RichJSON.from_data(resp))
-            return
         # Response shape can vary; attempt to read keys commonly returned
         data = resp.get("data") or resp
         metrics = data.get("metrics") if isinstance(data, dict) else None
         entries = metrics or []
-        table = Table(title=f"Tag cardinality for {metric}", show_lines=False)
-        table.add_column("tag_key", style="magenta")
-        table.add_column("cardinality", style="yellow", no_wrap=True)
+        rows = []
         if isinstance(entries, list):
             for e in entries:
-                key = e.get("tag_key") or e.get("name") or ""
-                card = e.get("cardinality") or e.get("count") or ""
-                table.add_row(str(key), str(card))
+                rows.append({
+                    "tag_key": e.get("tag_key") or e.get("name") or "",
+                    "cardinality": e.get("cardinality") or e.get("count") or 0,
+                })
         else:
-            # Fallback if a dict keyed by tag
             for key, val in (entries or {}).items():
-                card = val.get("cardinality") if isinstance(val, dict) else val
-                table.add_row(str(key), str(card))
-        console.print(table)
+                rows.append({
+                    "tag_key": str(key),
+                    "cardinality": (val.get("cardinality") if isinstance(val, dict) else val) or 0,
+                })
+
+        def _render() -> None:
+            table = Table(title=f"Tag cardinality for {metric}", show_lines=False)
+            table.add_column("tag_key", style="magenta")
+            table.add_column("cardinality", style="yellow", no_wrap=True)
+            for r in rows:
+                table.add_row(str(r["tag_key"]), str(r["cardinality"]))
+            console.print(table)
+
+        emit(ctx, "metrics.tag_cardinality", rows, raw=resp, meta={"metric": metric}, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")

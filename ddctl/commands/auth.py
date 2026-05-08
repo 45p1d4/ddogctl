@@ -8,6 +8,7 @@ from rich.json import JSON as RichJSON
 from ..cli import get_client_from_ctx
 from ..i18n import t
 from ..options import DebugOption
+from ..ui import emit
 
 app = typer.Typer(help=t("Comandos de autenticación", "Authentication commands"))
 console = Console()
@@ -26,15 +27,20 @@ def status(ctx: typer.Context, debug: DebugOption = False) -> None:
     try:
         data = client.get("/api/v1/validate")
         valid = bool(data.get("valid")) if isinstance(data, dict) else False
-        if debug:
-            console.rule("validate response")
-            console.print(RichJSON.from_data(data))
-        console.print(
-            Panel.fit(
-                f"[bold]site[/bold]: {client.site}\n[bold]api_key_valid[/bold]: {valid}",
-                title="ddogctl auth status",
+        result = {"site": client.site, "api_key_valid": valid}
+
+        def _render() -> None:
+            if debug:
+                console.rule("validate response")
+                console.print(RichJSON.from_data(data))
+            console.print(
+                Panel.fit(
+                    f"[bold]site[/bold]: {client.site}\n[bold]api_key_valid[/bold]: {valid}",
+                    title="ddogctl auth status",
+                )
             )
-        )
+
+        emit(ctx, "auth.status", result, raw=data, table_renderer=_render)
     except Exception as exc:
         raise typer.Exit(code=1) from exc
 
