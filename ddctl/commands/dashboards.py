@@ -7,6 +7,8 @@ from rich.json import JSON
 from ..cli import get_client_from_ctx
 from ..i18n import t
 from ..api import ApiError
+from ..normalize import normalize_dashboard_detail
+from ..ui import emit
 
 app = typer.Typer(help=t("Operaciones sobre Dashboards", "Dashboards operations"))
 console = Console()
@@ -28,8 +30,14 @@ def get_dashboard(
     client = get_client_from_ctx(ctx)
     try:
         with console.status("[dim]Cargando dashboard[/dim]"):
-            data = client.get(f"/api/v1/dashboard/{id}")
-        console.print(JSON.from_data(data))
+            data = client.get(f"/api/v1/dashboard/{id}") or {}
+        normalized = normalize_dashboard_detail(data)
+        emit(
+            ctx,
+            "dashboards.get",
+            normalized,
+            table_renderer=lambda: console.print(JSON.from_data(data)),
+        )
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")

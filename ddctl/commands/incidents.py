@@ -7,6 +7,8 @@ from rich.json import JSON
 from ..cli import get_client_from_ctx
 from ..i18n import t
 from ..options import DebugOption
+from ..normalize import normalize_incident
+from ..ui import emit
 
 app = typer.Typer(help=t("Operaciones sobre Incidents", "Incidents operations"))
 console = Console()
@@ -38,8 +40,15 @@ def create_incident(
             }
         }
         with console.status("[dim]Creando incidente[/dim]"):
-            data = client.post("/api/v2/incidents", json=payload)
-        console.print(JSON.from_data(data))
+            data = client.post("/api/v2/incidents", json=payload) or {}
+        item = (data.get("data") or {}) if isinstance(data, dict) else {}
+        normalized = normalize_incident(item)
+        emit(
+            ctx,
+            "incidents.create",
+            normalized,
+            table_renderer=lambda: console.print(JSON.from_data(data)),
+        )
     except Exception as exc:
         raise typer.Exit(code=1) from exc
 

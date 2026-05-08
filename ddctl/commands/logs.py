@@ -11,7 +11,8 @@ from ..utils_time import parse_time, to_iso8601
 from ..i18n import t
 from ..options import DebugOption
 from rich.json import JSON as RichJSON
-from ..ui import new_table
+from ..normalize import normalize_log
+from ..ui import emit, new_table
 
 app = typer.Typer(help=t("Búsqueda de Logs", "Logs search"))
 console = Console()
@@ -45,7 +46,7 @@ def query_logs(
     ),
     service: Optional[str] = typer.Option(None, "--service", help=t("Filtrar por service", "Filter by service")),
     query: Optional[str] = typer.Option(None, "--query", help=t("Consulta adicional", "Additional query")),
-    limit: int = typer.Option(50, "--limit", help=t("Límite de eventos", "Events limit"), show_default=True),
+    limit: int = typer.Option(10, "--limit", help=t("Límite de eventos", "Events limit"), show_default=True),
     debug: DebugOption = False,
 ) -> None:
     # Build and execute a logs search query over the provided time range
@@ -66,31 +67,34 @@ def query_logs(
         }
         with console.status("[dim]Buscando logs[/dim]"):
             data = client.post("/api/v2/logs/events/search", json=payload) or {}
-        if debug:
-            console.rule("logs search response")
-            console.print(RichJSON.from_data(data))
-            return
         items = data.get("data") or []
-        table = new_table("Logs", {"service": service or "", "from": from_, "to": to})
-        table.add_column("timestamp", style="cyan", no_wrap=True)
-        table.add_column("service", style="magenta", no_wrap=True)
-        table.add_column("status", style="green", no_wrap=True)
-        table.add_column("message", style="white")
+        normalized = [normalize_log(it) for it in items]
 
-        for item in items:
-            attrs = (item or {}).get("attributes") or {}
-            timestamp = attrs.get("timestamp", "") or ""
-            # El 'service' puede venir en attributes.attributes.service o en attributes.service
-            nested_attrs = attrs.get("attributes") or {}
-            service_val = nested_attrs.get("service") or attrs.get("service") or ""
-            status_val = attrs.get("status") or ""
-            message_val = nested_attrs.get("message") or attrs.get("message") or ""
-            if isinstance(message_val, (dict, list)):
-                message_val = str(message_val)
-            msg = (message_val or "")[:400]
-            table.add_row(str(timestamp), str(service_val), str(status_val), msg)
+        def _render() -> None:
+            if debug:
+                console.rule("logs search response")
+                console.print(RichJSON.from_data(data))
+                return
+            table = new_table("Logs", {"service": service or "", "from": from_, "to": to})
+            table.add_column("timestamp", style="cyan", no_wrap=True)
+            table.add_column("service", style="magenta", no_wrap=True)
+            table.add_column("status", style="green", no_wrap=True)
+            table.add_column("message", style="white")
+            for item in items:
+                attrs = (item or {}).get("attributes") or {}
+                timestamp = attrs.get("timestamp", "") or ""
+                nested_attrs = attrs.get("attributes") or {}
+                service_val = nested_attrs.get("service") or attrs.get("service") or ""
+                status_val = attrs.get("status") or ""
+                message_val = nested_attrs.get("message") or attrs.get("message") or ""
+                if isinstance(message_val, (dict, list)):
+                    message_val = str(message_val)
+                msg = (message_val or "")[:400]
+                table.add_row(str(timestamp), str(service_val), str(status_val), msg)
+            console.print(table)
 
-        console.print(table)
+        meta = {"from": from_, "to": to, "query": payload["filter"]["query"]}
+        emit(ctx, "logs.query", normalized, meta=meta, table_renderer=_render)
     except Exception as exc:
         raise typer.Exit(code=1) from exc
 

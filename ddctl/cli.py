@@ -30,11 +30,21 @@ def main(
     config: Optional[Path] = typer.Option(
         None, "--config", help=t("Ruta al archivo de configuración YAML", "Path to YAML config file")
         ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j",
+        help=t("Emitir JSON en stdout (suprime tablas)", "Emit JSON to stdout (suppress tables)"),
+    ),
+    full: bool = typer.Option(
+        False, "--full",
+        help=t("Emitir payload Datadog completo sin whitelist (con --json)", "Emit raw Datadog payload without whitelist (with --json)"),
+    ),
 ) -> None:
     # Global options only stored in context
     _ensure_ctx(ctx)
     ctx.obj["context_name"] = context
     ctx.obj["config_path"] = str(config) if config else None
+    ctx.obj["json"] = json_output
+    ctx.obj["full"] = full
 
 
 def get_client_from_ctx(ctx: typer.Context) -> ApiClient:

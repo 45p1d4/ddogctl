@@ -13,7 +13,13 @@ from ..cli import get_client_from_ctx
 from ..api import ApiError
 from ..utils_time import parse_time, to_iso8601
 from ..i18n import t
-from ..ui import new_table, build_title
+from ..normalize import (
+    bucket_count as _bucket_count,
+    extract_buckets as _norm_extract_buckets,
+    normalize_span,
+    trunc as _trunc,
+)
+from ..ui import emit, new_table, build_title
 
 app = typer.Typer(help=t("Operaciones de APM", "APM operations"))
 console = Console()
@@ -242,7 +248,7 @@ def spans_list(
     env: Optional[str] = typer.Option(None, "--env", help=t("Filtrar por env (p.ej. prd/dev)", "Filter by env (e.g., prd/dev)")),
     from_: str = typer.Option("now-15m", "--from", help=t("Inicio del rango", "Range start"), show_default=True),
     to: str = typer.Option("now", "--to", help=t("Fin del rango", "Range end"), show_default=True),
-    limit: int = typer.Option(50, "--limit", help="Limit", show_default=True),
+    limit: int = typer.Option(10, "--limit", help="Limit", show_default=True),
     query: Optional[str] = typer.Option(None, "--query", help=t("Consulta adicional", "Additional query")),
     sort: str = typer.Option("-timestamp", "--sort", help="Sort", show_default=True),
     debug: bool = typer.Option(False, "--debug", help="Show HTTP error details"),
@@ -266,7 +272,15 @@ def spans_list(
         if debug and items:
             console.rule("raw item (GET /spans/events)")
             console.print(RichJSON.from_data(items[0]))
-        _render_spans_table(items)
+        normalized = [normalize_span(it) for it in items]
+        meta = {"from": from_, "to": to, "query": params["filter[query]"]}
+        emit(
+            ctx,
+            "spans.list",
+            normalized,
+            meta=meta,
+            table_renderer=lambda: _render_spans_table(items),
+        )
     except Exception as exc:
         if debug:
             if isinstance(exc, ApiError):
@@ -289,7 +303,7 @@ def spans_search(
     env: Optional[str] = typer.Option(None, "--env", help=t("Filtrar por env (p.ej. prd/dev)", "Filter by env (e.g., prd/dev)")),
     from_: str = typer.Option("now-1h", "--from", help=t("Inicio del rango", "Range start"), show_default=True),
     to: str = typer.Option("now", "--to", help=t("Fin del rango", "Range end"), show_default=True),
-    limit: int = typer.Option(50, "--limit", help="Limit", show_default=True),
+    limit: int = typer.Option(10, "--limit", help="Limit", show_default=True),
     sort: str = typer.Option("-timestamp", "--sort", help="Sort", show_default=True),
     debug: bool = typer.Option(False, "--debug", help="Show HTTP error details"),
 ) -> None:
@@ -299,6 +313,7 @@ def spans_search(
         dt_to = parse_time(to)
         if dt_to < dt_from:
             raise typer.BadParameter(t("--to debe ser >= --from", "--to must be >= --from"))
+        effective_query = _build_query(None, query, env) if env else (query or "*")
         payload = {
             "data": {
                 "type": "search_request",
@@ -306,7 +321,7 @@ def spans_search(
                     "filter": {
                         "from": to_iso8601(dt_from),
                         "to": to_iso8601(dt_to),
-                        "query": _build_query(None, query, env) if env else (query or "*"),
+                        "query": effective_query,
                     },
                     "page": {"limit": limit},
                     "sort": sort,
@@ -319,7 +334,15 @@ def spans_search(
         if debug and items:
             console.rule("raw item (POST /spans/events/search)")
             console.print(RichJSON.from_data(items[0]))
-        _render_spans_table(items)
+        normalized = [normalize_span(it) for it in items]
+        meta = {"from": from_, "to": to, "query": effective_query}
+        emit(
+            ctx,
+            "spans.search",
+            normalized,
+            meta=meta,
+            table_renderer=lambda: _render_spans_table(items),
+        )
     except Exception as exc:
         if debug:
             if isinstance(exc, ApiError):
@@ -389,21 +412,27 @@ def errors_top_resources(
             console.rule("aggregate response")
             console.print(RichJSON.from_data(data))
         buckets = _extract_buckets(data)
-        table = new_table("Top resources by error count", {"service": service, "env": env or "", "from": from_})
-        table.add_column("resource_name", style="magenta")
-        table.add_column("count", style="cyan", no_wrap=True)
+        rows = []
         for b in buckets:
             ref = b.get("attributes") or b
             res = (ref.get("by") or {}).get("resource_name", "")
-            # Datadog returns either 'compute': {'c0': N} or 'computes': [{'value': N}]
-            compute_obj = ref.get("compute") or {}
-            if isinstance(compute_obj, dict) and "c0" in compute_obj:
-                count = compute_obj.get("c0", 0)
-            else:
-                computes = ref.get("computes") or [{}]
-                count = (computes[0] or {}).get("value", 0)
-            table.add_row(str(res), str(count))
-        console.print(table)
+            rows.append({"resource": _trunc(res, 80), "count": _bucket_count(b)})
+
+        def _render() -> None:
+            table = new_table("Top resources by error count", {"service": service, "env": env or "", "from": from_})
+            table.add_column("resource_name", style="magenta")
+            table.add_column("count", style="cyan", no_wrap=True)
+            for r in rows:
+                table.add_row(str(r["resource"]), str(r["count"]))
+            console.print(table)
+
+        emit(
+            ctx,
+            "errors.top_resources",
+            rows,
+            meta={"service": service, "env": env, "from": from_, "to": to},
+            table_renderer=_render,
+        )
     except Exception as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
@@ -461,20 +490,27 @@ def errors_rate(
             console.rule("aggregate response")
             console.print(RichJSON.from_data(data))
         buckets = _extract_buckets(data)
-        table = new_table(f"Error count by {group_by}", {"service": service, "env": env or "", "from": from_})
-        table.add_column(group_by, style="magenta")
-        table.add_column("count", style="cyan", no_wrap=True)
+        rows = []
         for b in buckets:
             ref = b.get("attributes") or b
             key = (ref.get("by") or {}).get(group_by, "")
-            compute_obj = ref.get("compute") or {}
-            if isinstance(compute_obj, dict) and "c0" in compute_obj:
-                count = compute_obj.get("c0", 0)
-            else:
-                computes = ref.get("computes") or [{}]
-                count = (computes[0] or {}).get("value", 0)
-            table.add_row(str(key), str(count))
-        console.print(table)
+            rows.append({"key": _trunc(key, 80), "count": _bucket_count(b)})
+
+        def _render() -> None:
+            table = new_table(f"Error count by {group_by}", {"service": service, "env": env or "", "from": from_})
+            table.add_column(group_by, style="magenta")
+            table.add_column("count", style="cyan", no_wrap=True)
+            for r in rows:
+                table.add_row(str(r["key"]), str(r["count"]))
+            console.print(table)
+
+        emit(
+            ctx,
+            "errors.rate",
+            rows,
+            meta={"service": service, "env": env, "group_by": group_by, "from": from_, "to": to},
+            table_renderer=_render,
+        )
     except Exception as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
