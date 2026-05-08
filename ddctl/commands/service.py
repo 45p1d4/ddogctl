@@ -73,24 +73,11 @@ def _safe_get_compute_values(resp: dict) -> dict:
 
 
 def _convert_duration_to_ms(value: float) -> float:
-    """
-    Heuristic conversion:
-    - If it looks like nanoseconds (very large), convert ns -> ms
-    - Else if it looks like microseconds, convert us -> ms
-    - Else assume already ms or seconds-ish; if < 10, assume seconds and convert to ms.
-    """
+    """Span aggregate duration is always nanoseconds — convert ns → ms."""
     try:
-        v = float(value)
+        return round(float(value) / 1_000_000.0, 2) if value else 0.0
     except Exception:
         return 0.0
-    if v > 10_000_000:  # likely nanoseconds
-        return v / 1_000_000.0
-    if v > 10_000:  # likely microseconds
-        return v / 1000.0
-    # If small number, assume seconds -> ms
-    if v <= 10:
-        return v * 1000.0
-    return v  # assume already ms
 
 
 def _render_overview_table(total_count: int, error_count: int, p95_ms: float, from_label: str, service: str, env: Optional[str], cluster: Optional[str]) -> None:
@@ -201,7 +188,7 @@ def service_troubleshoot(
                     },
                     "compute": [
                         {"aggregation": "count"},  # c0
-                        {"aggregation": "pc95", "metric": "duration"},  # c1
+                        {"aggregation": "pc95", "metric": "@duration"},  # c1
                     ],
                 },
             }
