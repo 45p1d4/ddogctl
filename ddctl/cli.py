@@ -67,6 +67,7 @@ from .commands import apm as apm_cmd  # noqa: E402
 from .commands import services as services_cmd  # noqa: E402
 from .commands import service as service_cmd  # noqa: E402
 from .commands import metrics as metrics_cmd  # noqa: E402
+from .commands import rum as rum_cmd  # noqa: E402
 from .i18n import t
 from rich.console import Console
 from importlib import resources as importlib_resources
@@ -81,6 +82,7 @@ app.add_typer(apm_cmd.app, name="apm")
 app.add_typer(services_cmd.app, name="services")
 app.add_typer(service_cmd.app, name="service")
 app.add_typer(metrics_cmd.app, name="metrics")
+app.add_typer(rum_cmd.app, name="rum")
 
 _console = Console()
 
