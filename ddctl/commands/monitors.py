@@ -82,7 +82,7 @@ def list_monitors(
                 table.add_row(mid, mname, mtype, state)
             console.print(table)
 
-        emit(ctx, "monitors.list", normalized, table_renderer=_render)
+        emit(ctx, "monitors.list", normalized, raw=items, table_renderer=_render)
     except Exception as exc:
         raise typer.Exit(code=1) from exc
 
@@ -112,6 +112,7 @@ def mute_monitor(
             ctx,
             "monitors.mute",
             result,
+            raw=data,
             table_renderer=lambda: console.print(JSON.from_data(data)),
         )
     except Exception as exc:

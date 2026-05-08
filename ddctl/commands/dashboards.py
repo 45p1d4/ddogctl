@@ -36,6 +36,7 @@ def get_dashboard(
             ctx,
             "dashboards.get",
             normalized,
+            raw=data,
             table_renderer=lambda: console.print(JSON.from_data(data)),
         )
     except Exception as exc:

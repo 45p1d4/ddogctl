@@ -42,6 +42,7 @@ def trigger_tests(
             ctx,
             "synthetics.trigger",
             normalized,
+            raw=data,
             table_renderer=lambda: console.print(JSON.from_data(data)),
         )
     except Exception as exc:

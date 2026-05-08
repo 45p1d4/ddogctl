@@ -49,7 +49,7 @@ def apps_list(
                 table.add_row(str(r.get("id") or ""), str(r.get("name") or ""), str(r.get("type") or ""))
             console.print(table)
 
-        emit(ctx, "rum.apps.list", normalized, table_renderer=_render)
+        emit(ctx, "rum.apps.list", normalized, raw=resp, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
@@ -117,7 +117,7 @@ def events_search(
             console.print(table)
 
         meta = {"from": from_, "to": to, "query": effective_query}
-        emit(ctx, "rum.events.search", normalized, meta=meta, table_renderer=_render)
+        emit(ctx, "rum.events.search", normalized, raw=items, meta=meta, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
@@ -180,7 +180,7 @@ def events_count(
             console.print(table)
 
         meta = {"from": from_, "to": to, "group_by": group_by, "query": query or "*"}
-        emit(ctx, "rum.events.count", rows, meta=meta, table_renderer=_render)
+        emit(ctx, "rum.events.count", rows, raw=resp, meta=meta, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")

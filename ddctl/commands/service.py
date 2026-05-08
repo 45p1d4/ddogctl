@@ -347,7 +347,13 @@ def service_troubleshoot(
             summary_text = _heuristic_summary(err_rate, p95_ms, top_pairs)
             console.print(Panel.fit(summary_text, title="Resumen", border_style="blue"))
 
-        emit(ctx, "service.troubleshoot", result, table_renderer=_render)
+        full_payload = {
+            "overview": resp_overview,
+            "errors": resp_errors,
+            "top_resources": resp_top,
+            "logs": logs_resp,
+        }
+        emit(ctx, "service.troubleshoot", result, raw=full_payload, table_renderer=_render)
 
     except Exception as exc:
         if debug:

@@ -278,6 +278,7 @@ def spans_list(
             ctx,
             "spans.list",
             normalized,
+            raw=items,
             meta=meta,
             table_renderer=lambda: _render_spans_table(items),
         )
@@ -340,6 +341,7 @@ def spans_search(
             ctx,
             "spans.search",
             normalized,
+            raw=items,
             meta=meta,
             table_renderer=lambda: _render_spans_table(items),
         )
@@ -430,6 +432,7 @@ def errors_top_resources(
             ctx,
             "errors.top_resources",
             rows,
+            raw=data,
             meta={"service": service, "env": env, "from": from_, "to": to},
             table_renderer=_render,
         )
@@ -508,6 +511,7 @@ def errors_rate(
             ctx,
             "errors.rate",
             rows,
+            raw=data,
             meta={"service": service, "env": env, "group_by": group_by, "from": from_, "to": to},
             table_renderer=_render,
         )

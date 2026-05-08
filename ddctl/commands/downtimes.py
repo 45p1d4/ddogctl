@@ -61,7 +61,7 @@ def list_downtimes(
                 )
             console.print(table)
 
-        emit(ctx, "downtimes.list", normalized, table_renderer=_render)
+        emit(ctx, "downtimes.list", normalized, raw=resp, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
@@ -100,7 +100,7 @@ def schedule_downtime(
             resp = client.post("/api/v2/downtime", json=body) or {}
         item = resp.get("data") or {}
         normalized = normalize_downtime(item)
-        emit(ctx, "downtimes.schedule", normalized, table_renderer=lambda: console.print(RichJSON.from_data(resp)))
+        emit(ctx, "downtimes.schedule", normalized, raw=resp, table_renderer=lambda: console.print(RichJSON.from_data(resp)))
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")

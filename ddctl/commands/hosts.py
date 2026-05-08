@@ -69,6 +69,7 @@ def list_hosts(
             ctx,
             "hosts.list",
             normalized,
+            raw=resp,
             meta={"filter": filter_, "count": count, "total_returned": resp.get("total_returned")},
             table_renderer=_render,
         )
@@ -102,7 +103,7 @@ def count_hosts(
         def _render() -> None:
             console.print(RichJSON.from_data(resp))
 
-        emit(ctx, "hosts.count", result, table_renderer=_render)
+        emit(ctx, "hosts.count", result, raw=resp, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
@@ -134,7 +135,7 @@ def mute_host(
         with console.status("[dim]Silenciando host[/dim]"):
             resp = client.post(f"/api/v1/host/{host}/mute", json=body) or {}
         result = {"host": host, "muted": True, "end": resp.get("end")}
-        emit(ctx, "hosts.mute", result, table_renderer=lambda: console.print(RichJSON.from_data(resp)))
+        emit(ctx, "hosts.mute", result, raw=resp, table_renderer=lambda: console.print(RichJSON.from_data(resp)))
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
@@ -158,7 +159,7 @@ def unmute_host(
         with console.status("[dim]Quitando mute[/dim]"):
             resp = client.post(f"/api/v1/host/{host}/unmute", json={}) or {}
         result = {"host": host, "muted": False}
-        emit(ctx, "hosts.unmute", result, table_renderer=lambda: console.print(RichJSON.from_data(resp)))
+        emit(ctx, "hosts.unmute", result, raw=resp, table_renderer=lambda: console.print(RichJSON.from_data(resp)))
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")

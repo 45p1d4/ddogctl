@@ -74,6 +74,7 @@ def emit(
     cmd: str,
     data: Any,
     *,
+    raw: Any = None,
     fields: Optional[List[str]] = None,
     meta: Optional[Dict[str, Any]] = None,
     table_renderer: Optional[Callable[[], None]] = None,
@@ -81,22 +82,27 @@ def emit(
     """
     Centralized output helper.
 
-    - `data` is either a list of normalized dicts or a single dict.
+    - `data` is the normalized (digested) shape — list of dicts or a single dict.
+    - `raw`  is the original Datadog payload, emitted when `--full` is set.
+      If `raw` is omitted, `--full` falls back to `data` (no regression vs the
+      previous behavior, but also no escape hatch for that command).
     - When `--json` is active, emits compact JSON: {cmd, n, data, meta}.
-      In `--full` mode no whitelisting is applied; otherwise fields are filtered
-      via DEFAULT_FIELDS[cmd] (or the explicit `fields` argument).
+      Without `--full`, fields are whitelisted via DEFAULT_FIELDS[cmd] (or the
+      explicit `fields` argument).
     - When `--json` is NOT active, calls `table_renderer()` to keep the
       pre-existing Rich table behavior.
     """
     if is_json(ctx):
-        payload = data
-        if not is_full(ctx):
+        if is_full(ctx):
+            payload = raw if raw is not None else data
+        else:
+            payload = data
             wl = fields or DEFAULT_FIELDS.get(cmd)
             if wl:
-                if isinstance(data, list):
-                    payload = [_whitelist(x, wl) for x in data]
-                elif isinstance(data, dict):
-                    payload = _whitelist(data, wl)
+                if isinstance(payload, list):
+                    payload = [_whitelist(x, wl) for x in payload]
+                elif isinstance(payload, dict):
+                    payload = _whitelist(payload, wl)
         n = len(payload) if isinstance(payload, list) else 1
         out = {"cmd": cmd, "n": n, "data": payload}
         if meta:

@@ -210,6 +210,7 @@ def metrics_query(
             ctx,
             "metrics.query",
             normalized_rows,
+            raw=resp,
             meta={"from": from_, "to": to, "query": query},
             table_renderer=lambda: console.print(table),
         )
@@ -362,7 +363,7 @@ def metrics_tag_cardinality(
                 table.add_row(str(r["tag_key"]), str(r["cardinality"]))
             console.print(table)
 
-        emit(ctx, "metrics.tag_cardinality", rows, meta={"metric": metric}, table_renderer=_render)
+        emit(ctx, "metrics.tag_cardinality", rows, raw=resp, meta={"metric": metric}, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")

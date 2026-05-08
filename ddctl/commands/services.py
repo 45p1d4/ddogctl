@@ -145,7 +145,7 @@ def apply_service(
                     )
                 )
 
-        emit(ctx, "services.apply", {"name": service, "applied": True}, table_renderer=_render)
+        emit(ctx, "services.apply", {"name": service, "applied": True}, raw=resp, table_renderer=_render)
 
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
@@ -184,7 +184,7 @@ def get_service(
                 return
             _render_entities_table(items)
 
-        emit(ctx, "services.get", normalized, table_renderer=_render)
+        emit(ctx, "services.get", normalized, raw=resp, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
@@ -213,7 +213,7 @@ def list_services(
                 return
             _render_entities_table(items)
 
-        emit(ctx, "services.list", normalized, table_renderer=_render)
+        emit(ctx, "services.list", normalized, raw=resp, table_renderer=_render)
     except Exception as exc:
         if debug and isinstance(exc, ApiError):
             console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")

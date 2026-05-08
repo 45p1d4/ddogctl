@@ -94,7 +94,7 @@ def query_logs(
             console.print(table)
 
         meta = {"from": from_, "to": to, "query": payload["filter"]["query"]}
-        emit(ctx, "logs.query", normalized, meta=meta, table_renderer=_render)
+        emit(ctx, "logs.query", normalized, raw=items, meta=meta, table_renderer=_render)
     except Exception as exc:
         raise typer.Exit(code=1) from exc
 
