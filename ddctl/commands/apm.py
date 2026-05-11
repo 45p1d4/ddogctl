@@ -733,12 +733,26 @@ def spans_aggregate(
                 tbl.add_row(*[str(r.get(c, "")) for c in cols])
             console.print(tbl)
 
+        # The row schema is dynamic — it depends on what --compute the user
+        # requested. Build the whitelist from the actual columns so any
+        # percentile (p50/p75/p90/p95/p99) and any custom aggregation (avg,
+        # sum, min, max) passes through, instead of being silently stripped
+        # by the static DEFAULT_FIELDS entry.
+        dynamic_fields = ["key"]
+        for agg in aggs:
+            if agg == "count":
+                dynamic_fields.append("count")
+            elif agg.startswith("pc"):
+                dynamic_fields.append(f"p{agg[2:]}_ms")
+            else:
+                dynamic_fields.append(agg)
+
         meta = {
             "query": query, "group_by": group_by, "compute": aggs,
             "metric": metric, "sort_by": sort_by, "order": order,
             "from": from_, "to": to,
         }
-        emit(ctx, "spans.aggregate", rows, raw=data, meta=meta, table_renderer=_render)
+        emit(ctx, "spans.aggregate", rows, raw=data, fields=dynamic_fields, meta=meta, table_renderer=_render)
     except Exception as exc:
         if debug:
             if isinstance(exc, ApiError):
@@ -901,9 +915,23 @@ def trace_timeseries(
                 tbl.add_row(*[str(r.get(c, "")) for c in cols])
             console.print(tbl)
 
+        # Dynamic whitelist matching the actual columns the user requested
+        # via --compute. Without this any percentile beyond p95/p99 (i.e.
+        # p50/p75/p90 if you asked for them) gets silently stripped by the
+        # static DEFAULT_FIELDS entry.
+        dynamic_fields = ["ts"]
+        for agg in aggs:
+            if agg == "count":
+                dynamic_fields.append("count")
+            elif agg.startswith("pc"):
+                dynamic_fields.append(f"p{agg[2:]}_ms")
+            else:
+                dynamic_fields.append(agg)
+        dynamic_fields.append("error")  # soft-fail marker (set when a bucket retries out)
+
         meta = {"query": query, "interval": interval, "compute": aggs,
                 "metric": metric, "from": from_, "to": to}
-        emit(ctx, "trace.timeseries", rows, raw=data, meta=meta, table_renderer=_render)
+        emit(ctx, "trace.timeseries", rows, raw=data, fields=dynamic_fields, meta=meta, table_renderer=_render)
     except Exception as exc:
         # ALWAYS log the exception to stderr — silently swallowing it makes
         # downstream parsers see exit=1 with no diagnostic, which is worse
