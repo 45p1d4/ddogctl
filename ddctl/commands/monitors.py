@@ -30,8 +30,8 @@ def list_monitors(
     ),
     tags: Optional[str] = typer.Option(
         None, "--tags",
-        help=t("Filtro por scope tags coma-separados (p.ej. service:obe-api,env:prd)",
-               "Comma-separated scope tags filter (e.g., service:obe-api,env:prd)"),
+        help=t("Filtro por scope tags coma-separados (p.ej. service:my-service,env:prd)",
+               "Comma-separated scope tags filter (e.g., service:my-service,env:prd)"),
     ),
     monitor_tags: Optional[str] = typer.Option(
         None, "--monitor-tags",

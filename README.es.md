@@ -1,230 +1,346 @@
+<div align="center">
+
 # ddogctl
 
-CLI simple para Datadog inspirado en kubectl, construida con Typer y Rich.
+**El CLI de Datadog inspirado en `kubectl` — rápido, scriptable y diseñado para agentes de IA.**
 
-## Requisitos
-- Python 3.10+
+`ddogctl` lleva la ergonomía de `kubectl` a Datadog: subcomandos predecibles,
+tablas Rich para humanos y JSON compacto para máquinas (y agentes).
+Cubre Monitors, Dashboards, Incidents, Synthetics, Logs, APM (spans / errores / traces),
+RUM, Métricas, Service Catalog, Hosts, Downtimes y generación de URLs profundas a la UI —
+todo desde un único binario, con ayuda bilingüe (Español / Inglés).
 
-## Instalación (modo editable)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Typer](https://img.shields.io/badge/built%20with-Typer-009485)](https://typer.tiangolo.com/)
+[![Rich](https://img.shields.io/badge/output-Rich%20tables-orange)](https://rich.readthedocs.io/)
+[![Datadog](https://img.shields.io/badge/Datadog-API-632CA6?logo=datadog&logoColor=white)](https://docs.datadoghq.com/api/)
+[![Agent‑friendly](https://img.shields.io/badge/Claude%20agents-optimized-7C3AED)](#agentes-de-claude--salida-amigable-para-ia)
+[![PRs bienvenidas](https://img.shields.io/badge/PRs-welcome-brightgreen)](#contribuir)
+
+[Read this in English / Leer en inglés →](README.md)
+
+</div>
+
+---
+
+## Tabla de contenido
+
+- [¿Por qué ddogctl?](#por-qué-ddogctl)
+- [Agentes de Claude / salida amigable para IA](#agentes-de-claude--salida-amigable-para-ia)
+- [Inicio rápido](#inicio-rápido)
+- [Autenticación](#autenticación)
+- [Opciones globales](#opciones-globales)
+- [Referencia de comandos](#referencia-de-comandos)
+  - [auth](#auth) · [monitors](#monitors) · [dashboards](#dashboards) · [incidents](#incidents)
+  - [synthetics](#synthetics) · [logs](#logs) · [apm](#apm) · [service](#service-troubleshoot)
+  - [services](#services-software-catalog) · [metrics](#metrics-métricas) · [rum](#rum)
+  - [hosts](#hosts) · [downtimes](#downtimes) · [url](#url-deep-links-sin-llamadas-a-la-api)
+- [Recetas](#recetas)
+- [Contribuir](#contribuir)
+- [Licencia](#licencia)
+
+---
+
+## ¿Por qué ddogctl?
+
+- **Un solo CLI, toda la plataforma.** Monitors, dashboards, incidents, synthetics, logs, APM, RUM, métricas, hosts, downtimes, service catalog y URLs profundas.
+- **Dos modos de salida.** Tablas Rich en tu terminal, o `--json` para pipelines y agentes — con `--full` como escape para el payload crudo de Datadog.
+- **Pensado para SRE.** `service troubleshoot` consolida cuatro llamadas internas (tasa de error, p95, top recursos en error, logs de error recientes) en un solo registro de menos de 1.5 KB.
+- **Ergonomía tipo kubectl.** Subcomandos estables verbo‑sustantivo, flags con nombre, contextos, rangos `--from / --to` (`now-1h`, `-15m`, ISO), y `--debug` en cada comando hoja.
+- **Multi‑contexto** con un único `~/.config/ddctl/config.yaml`, intercambiable con `--context`. Las variables de entorno (`DD_SITE`, `DD_API_KEY`, `DD_APP_KEY`) tienen prioridad.
+- **Ayuda bilingüe.** Configura `DDOGCTL_LANG=es` o `DDOGCTL_LANG=en`.
+- **Easter egg.** `ddogctl guaf` imprime el logo ASCII de Datadog.
+
+> Como `kubectl get pods` pero para Datadog, con JSON listo para agentes incluido.
+
+---
+
+## Agentes de Claude / salida amigable para IA
+
+`ddogctl` es de **primera clase para tool‑use con LLMs** (agentes de Claude, Claude Code, asistentes propios):
+
+- **JSON compacto** con `--json`: `{cmd, n, data, meta}`, una sola línea, sin espacios y con nombres de campos estables.
+- **Whitelist por defecto**: cada comando publica un conjunto de campos curado para la pregunta que responde (mira `DEFAULT_FIELDS` en `ddctl/normalize.py`).
+- **Escape**: añade `--full` cuando realmente necesites el payload crudo de Datadog.
+- **Errores también estructurados**: `{cmd, error:{type, message, status, payload}}` — los agentes pueden bifurcar por `status` sin tener que parsear texto.
+- **Ahorro de tokens**: en benchmarks internos de triage SRE, los payloads de `ddogctl --json` resultaron **hasta ~88% más pequeños** que las mismas consultas vía el MCP oficial de Datadog, reduciendo costo y latencia.
+
+Definición mínima de tool para Claude (Anthropic Tools API / Claude Code):
+
+```json
+{
+  "name": "ddogctl_service_troubleshoot",
+  "description": "Triage Datadog de un servicio en un solo paso (tasa de error, p95, top recursos con error, logs recientes).",
+  "input_schema": {
+    "type": "object",
+    "required": ["service"],
+    "properties": {
+      "service":  {"type": "string"},
+      "env":      {"type": "string", "default": "prd"},
+      "from":     {"type": "string", "default": "now-15m"},
+      "context":  {"type": "string", "default": "prd"}
+    }
+  }
+}
+```
+
+Luego, desde el agente:
+
+```bash
+ddogctl --json --context prd service troubleshoot \
+  --service "$SERVICE" --env "$ENV" --from "$FROM"
+```
+
+Hay un recetario completo de triage en [`examples/triage-with-json.md`](examples/triage-with-json.md).
+
+---
+
+## Inicio rápido
 
 ```bash
 pip install -e .
-```
 
-## Variables de entorno
-- `DD_SITE` (p. ej. `datadoghq.com`, `datadoghq.eu`, `us3.datadoghq.com`, etc.)
-- `DD_API_KEY`
-- `DD_APP_KEY`
-
-Las credenciales se leen primero desde variables de entorno. Si no están presentes, se buscan en un archivo YAML por contexto.
-
-### Configuración rápida (Windows PowerShell)
-
-Temporal (solo sesión actual):
-```powershell
-$env:DD_SITE = "datadoghq.com"   # cámbialo si tu cuenta usa otra región
+# Credenciales (PowerShell)
+$env:DD_SITE   = "datadoghq.com"
 $env:DD_API_KEY = "<TU_API_KEY>"
-$env:DD_APP_KEY = "<TU_APP_KEY>" # necesario para la mayoría de endpoints v1/v2
-```
+$env:DD_APP_KEY = "<TU_APP_KEY>"
 
-Persistente (requiere abrir nueva terminal):
-```powershell
-setx DD_SITE "datadoghq.com"
-setx DD_API_KEY "<TU_API_KEY>"
-setx DD_APP_KEY "<TU_APP_KEY>"
-```
-
-Verificación:
-```powershell
 ddogctl auth status
+ddogctl monitors list --states "Alert,Warn" --page-size 50
+ddogctl service troubleshoot --service checkout --env prd --from now-15m
+ddogctl --json apm errors rate --service checkout --env prd --from now-1h --group-by resource_name
 ```
 
-## Archivo de configuración
-Ruta por defecto: `~/.config/ddctl/config.yaml`
+> macOS / Linux: cambia `$env:VAR = "..."` por `export VAR=...`.
 
-Formato:
+---
+
+## Autenticación
+
+Las credenciales se resuelven en este orden:
+
+1. **Variables de entorno**: `DD_SITE`, `DD_API_KEY`, `DD_APP_KEY`.
+2. **YAML**: `~/.config/ddctl/config.yaml`.
+
 ```yaml
 contexts:
   prd:
     site: datadoghq.com
+    api_key: "TU_API_KEY"
+    app_key: "TU_APP_KEY"
+  staging:
+    site: datadoghq.eu
     api_key: "..."
     app_key: "..."
 ```
 
-Puedes seleccionar el contexto con `--context <name>` y cambiar la ruta con `--config <path>`.
+Selecciona el contexto con `--context staging` y sobreescribe la ruta con `--config ./otro.yaml`.
+La mayoría de endpoints (monitors, dashboards, incidents, synthetics, logs, APM, RUM, métricas)
+**requieren Application Key** además de API Key.
 
-### Application Key (recomendado)
-- Muchos endpoints (monitors, dashboards, incidents, synthetics, logs) requieren `DD_APP_KEY` además de `DD_API_KEY`.
-- Crea un Application Key en Datadog y asígnale permisos adecuados.
-- Ejemplo (PowerShell):
-```powershell
-$env:DD_APP_KEY = "<TU_APP_KEY>"
-# o persistente
-setx DD_APP_KEY "<TU_APP_KEY>"
+---
+
+## Opciones globales
+
+| Opción | Descripción |
+|---|---|
+| `--context <nombre>` | Contexto YAML a usar. |
+| `--config <ruta>`    | Ruta al archivo YAML. |
+| `--json`, `-j`       | Emite JSON compacto a stdout (suprime tablas). |
+| `--full`             | Junto a `--json`, emite el payload crudo de Datadog (sin whitelist). |
+| `DDOGCTL_LANG=es\|en` | Idioma de la ayuda (por defecto `es`). |
+| `--debug` (por comando) | Debug verboso, sin secretos — disponible en todo comando hoja. |
+
+---
+
+## Referencia de comandos
+
+> Todos los comandos soportan `--json`, `--full`, `--context`, `--config` y `--debug`.
+
+### auth
+```bash
+ddogctl auth status            # GET /api/v1/validate
 ```
 
-Permisos sugeridos (dependiendo de lo que uses):
-- Monitors: lectura/escritura de monitors
-- Dashboards: lectura de dashboards
-- Incidents: lectura/escritura de incidents
-- Synthetics: lectura/ejecución de tests
-- Logs: lectura de datos de logs (p. ej., logs_read_data o equivalente en tu plan)
-
-## Uso
-Opciones globales:
-- `--context <nombre>`: Contexto a usar del archivo de configuración.
-- `--config <ruta>`: Ruta al archivo de configuración YAML.
-- `DDOGCTL_LANG=en|es`: Idioma de los mensajes de ayuda (por defecto `es`).
-
-### Autenticación
+### monitors
 ```bash
-ddogctl auth status
-```
-Imprime el `site` y `api_key_valid` tras consultar `GET /api/v1/validate`.
+ddogctl monitors list \
+  [--name <substring>] [--tags service:my-svc,env:prd] \
+  [--monitor-tags team:platform] [--states "Alert,Warn,No Data,OK"] \
+  [--page-size 100]
 
-### Monitors
-- Listar:
-```bash
-ddogctl monitors list [--name <substring>]
-```
-Muestra tabla con `id`, `name`, `type`, `state`.
-
-- Silenciar:
-```bash
 ddogctl monitors mute --id <int>
 ```
-Ejecuta `POST /api/v1/monitor/{id}/mute` y muestra el JSON resultante.
 
-### Dashboards
+### dashboards
 ```bash
-ddogctl dashboards get --id <str>
-```
-Obtiene `GET /api/v1/dashboard/{id}` y muestra el JSON.
-
-### Incidents
-```bash
-ddogctl incidents create --title "Título" --severity SEV-2
-```
-Crea `POST /api/v2/incidents` con el JSON requerido y muestra la respuesta.
-
-### Synthetics
-```bash
-ddogctl synthetics trigger --public-id <id> --public-id <id2> ...
-```
-Realiza `POST /api/v1/synthetics/tests/trigger` con `{"tests":[{"public_id":"..."}]}` y muestra la respuesta.
-
-### Logs
-```bash
-ddogctl logs query --from -1h --to now [--service payments] [--query "status:error"] [--limit 50]
-```
-Realiza `POST /api/v2/logs/events/search`. Acepta tiempos relativos `-15m`, `-1h`, `-2d` o datetime ISO. Construye la query incluyendo `service:<svc>` si se especifica, más `--query` o `"*"` por defecto. Muestra tabla con `timestamp`, `service`, `status`, `message` (truncado a 400 chars).
-
-## Ejemplos
-```bash
-ddogctl auth status
-ddogctl monitors list --name cpu
-ddogctl monitors mute --id 12345
-ddogctl dashboards get --id abc-def-123
-ddogctl incidents create --title "Base de datos caída" --severity SEV-2
-ddogctl synthetics trigger --public-id abcd123 --public-id efgh456
-ddogctl logs query --from -15m --service checkout --query "status:error" --limit 100
-ddogctl apm spans list --service payments --from now-15m
-ddogctl apm spans search --query "service:payments env:prd" --from now-1h --limit 50
-ddogctl apm errors top-resources --service payments --from now-24h
-ddogctl apm errors rate --service payments --group-by resource_name --from now-1h
+ddogctl dashboards get --id <id>
 ```
 
-### Service troubleshoot
-Vista de diagnóstico en un solo comando (tasa de error APM + latencia p95, top recursos con error, últimos 10 logs de error):
+### incidents
+```bash
+ddogctl incidents create --title "Título" --severity SEV-2 \
+  [--summary "..."] [--root-cause "..."] [--detection-method "Monitor"] \
+  [--service svc] [--team platform] [--customer-impact]
+```
+
+### synthetics
+```bash
+ddogctl synthetics trigger --public-id <id> --public-id <id2>
+```
+
+### logs
+```bash
+ddogctl logs query --from -1h --to now \
+  [--service payments] [--query "status:error"] [--limit 50]
+```
+Columnas: `timestamp`, `service`, `status`, `message` (truncado a 400 chars).
+Tiempo: `now`, `now-15m`, `-15m`, `-1h`, `-2d`, e ISO datetimes.
+
+### apm
+```bash
+# Spans
+ddogctl apm spans list   --service my-svc --env prd --from now-15m --limit 50
+ddogctl apm spans search --query "service:my-svc env:prd" --from now-1h --limit 50
+ddogctl apm spans aggregate --query "service:my-svc" --group-by resource_name --from now-1h
+
+# Análisis de errores
+ddogctl apm errors top-resources --service my-svc --env prd --from now-1h --limit 10
+ddogctl apm errors rate          --service my-svc --env prd --from now-1h --group-by resource_name
+
+# Traces
+ddogctl apm trace get        --trace-id <id>
+ddogctl apm trace timeseries --query "service:my-svc env:prd" --from now-1h
+```
+
+Notas:
+- Oculta automáticamente columnas vacías; `env` / `service` se mueven al título de la tabla cuando son constantes.
+- Duraciones en milisegundos (`dur_ms`); el conteo APM se lee desde `attributes.compute.c0`.
+
+### service troubleshoot
+**El comando estrella para SRE** — tasa de error APM + latencia p95, top recursos con error y últimos logs de error en un solo registro:
 ```bash
 ddogctl service troubleshoot \
-  --service checkout \
-  --env prd \
-  --from now-1h \
-  [--cluster nombre_del_cluster] \
-  [--debug]
-```
-Muestra:
-- Tasa de errores y p95 de latencia desde agregados de APM
-- Principales recursos con error agrupados por `resource_name`
-- Últimos 10 logs de error (`service:<svc> status:error` y `env:<env>` cuando se proporciona; también `cluster:<name>` si se indica)
-- Un breve resumen heurístico con señales clave
-
-Filtrar por entorno (env):
-```bash
-ddogctl apm spans list --service my-service --env prd --from now-15m
-ddogctl apm spans search --query "service:my-service" --env dev --from now-1h
+  --service checkout --env prd --from now-1h \
+  [--cluster nombre_cluster] [--debug]
 ```
 
-### Services (Service Definitions)
-Crear/actualizar desde YAML:
+### services (Software Catalog)
 ```bash
-ddogctl services apply --file .\service.yaml
+ddogctl services apply --file ./service.yaml
+ddogctl services apply --service my-svc --schema-version v2.1 --env prd \
+  --description "Servicio de checkout" --tag team:platform --tag app:web --tier critical
+ddogctl services list                # tabla por defecto
+ddogctl services get    --service my-svc
+ddogctl services delete --service my-svc
 ```
 
-Crear/actualizar con flags mínimos:
+### metrics (Métricas)
 ```bash
-ddogctl services apply `
-  --service my-service `
-  --schema-version v2.1 `
-  --env prd `
-  --description "Servicio de checkout" `
-  --tag team:platform --tag app:web --tier critical
-```
-
-Listar definiciones (tabla por defecto; `--debug` muestra JSON crudo):
-```bash
-ddogctl services list
-ddogctl services list --debug
-```
-
-Obtener una definición por nombre:
-```bash
-ddogctl services get --service my-service
-```
-
-Eliminar una definición:
-```bash
-ddogctl services delete --service my-service
-```
-
-API de referencia: https://docs.datadoghq.com/es/api/latest/service-definition
-
-### Métricas
-
-Consultar series temporales:
-```bash
-ddogctl metrics query `
-  --query "avg:kubernetes.cpu.requests{cluster:your_cluster_name} by {kube_deployment}" `
+# Series temporales con sparkline
+ddogctl metrics query \
+  --query "avg:kubernetes.cpu.requests{cluster:my} by {kube_deployment}" \
   --from now-1h --rollup 120 --limit 20 --spark
-```
-Opciones:
-- `--limit`: máximo de series a mostrar
-- `--spark` y `--spark-points`: muestra un mini‑gráfico por serie
-- `--scope-tag kube_deployment`: conserva solo ese tag del scope en la tabla
-- Los valores se imprimen con decimales fijos (sin notación científica)
 
-Cardinalidad de tags:
-```bash
+# Cardinalidad de tags
 ddogctl metrics tag-cardinality --metric kubernetes.cpu.requests
-```
 
-Recursos de Kubernetes (CPU/Memoria) por servicio o deployment:
-```bash
+# Capacidad Kubernetes (CPU/Memoria) por servicio o deployment
 ddogctl metrics k8s-resources \
   --cluster your_cluster_name \
   --kube-service your_service_name \
-  --from now-30m --rollup 120 \
-  [--cpu-unit mcores] [--debug]
+  --from now-30m --rollup 120 [--cpu-unit mcores] [--debug]
 ```
-Muestra el último punto del rango seleccionado:
-- CPU requests: `sum:kubernetes.cpu.requests{...}`
-- CPU limits: `sum:kubernetes.cpu.limits{...}`
-- CPU usage: `sum:kubernetes.cpu.usage.total{...}.as_rate()` y se convierte de nanocores/seg a cores; si pasas `--cpu-unit mcores` se muestra en millicores
-- Memoria requests: `sum:kubernetes.memory.requests{...}`
-- Memoria limits: `sum:kubernetes.memory.limits{...}`
-- Memoria usage: `sum:container.memory.usage{...}` con unidades legibles (B/KiB/MiB/GiB)
+CPU se imprime en cores o mCores (sin notación científica); la memoria se auto‑escala (B / KiB / MiB / GiB).
 
-Notas:
-- Todas las agregaciones usan `sum` para representar el total del workload seleccionado.
-- Los números de CPU evitan notación científica; la memoria se auto‑escala a unidades humanas.
+### rum
+```bash
+ddogctl rum apps list
+ddogctl rum events search --query "@type:error" --from now-1h --limit 20
+ddogctl rum events count  --group-by @type --from now-2h
+```
+
+### hosts
+```bash
+ddogctl hosts list   [--filter "env:prd OR cluster:tor"] [--count 20]
+ddogctl hosts count
+ddogctl hosts mute   --host <nombre> [--message "patching"] [--end <epoch>] [--override]
+ddogctl hosts unmute --host <nombre>
+```
+
+### downtimes
+```bash
+ddogctl downtimes list [--current-only]
+ddogctl downtimes schedule --scope "env:prd" \
+  --start 2026-05-12T00:00:00Z --end 2026-05-12T01:00:00Z --message "Release"
+ddogctl downtimes cancel --id <id>
+```
+
+### url (deep links, sin llamadas a la API)
+Genera enlaces listos para compartir a la UI de Datadog sin gastar una llamada API:
+```bash
+ddogctl url trace     --trace-id <id> --from now-1h --to now
+ddogctl url explorer  --query "service:my-svc env:prd" --from now-24h
+ddogctl url service   --service my-svc --env prd --from now-24h
+ddogctl url logs      --query "status:error service:my-svc" --from now-1h
+ddogctl url monitor   --id 42
+ddogctl url dashboard --id abc-123
+ddogctl url incident  --id 17
+```
+El host base se infiere del `site` del contexto activo (o `--base`).
+
+---
+
+## Recetas
+
+**Triage de producción en 90 segundos**
+```bash
+SVC=my-api; ENV=prd
+
+ddogctl --json --context prd service troubleshoot --service "$SVC" --env "$ENV" --from -15m
+ddogctl --json --context prd monitors list --tags "service:$SVC" --states "Alert,Warn"
+ddogctl --json --context prd apm errors rate --service "$SVC" --env "$ENV" \
+  --group-by resource_name --from -15m --limit 5 | jq '.data[0:3]'
+```
+
+**Compartir un deep link**
+```bash
+ddogctl url logs --query "service:$SVC status:error" --from now-1h
+```
+
+**Pipe a `jq`**
+```bash
+ddogctl --json apm errors top-resources --service "$SVC" --env "$ENV" --from now-1h --limit 5 \
+  | jq '.data[] | "\(.count)\t\(.resource)"'
+```
+
+Un recorrido completo de triage está en [`examples/triage-with-json.md`](examples/triage-with-json.md).
+
+---
+
+## Contribuir
+
+¡PRs e issues son bienvenidos! — especialmente:
+
+- Nuevos comandos o flags que mapeen limpiamente a endpoints de Datadog.
+- Shapes de respuesta token‑eficientes para agentes de IA.
+- Ayuda bilingüe (el proyecto ya soporta strings completos ES/EN vía `ddctl/i18n.py`).
+- Tests en `tests/` (corre con `pytest -q`).
+
+```bash
+pip install -e .
+pip install pytest
+pytest -q
+```
+
+Un test guardrail (`tests/test_debug_help.py`) garantiza que cada comando hoja expone `--debug`.
+
+Lee [`CONTRIBUTING.md`](CONTRIBUTING.md) para la guía completa — arquitectura, cómo agregar un comando, contrato de salida, estilo y convenciones de commits/PRs.
+
+---
+
+## Licencia
+
+Este proyecto está licenciado bajo la [Licencia MIT](LICENSE).
+
+Si `ddogctl` te ahorra tiempo, considera darle una ⭐ al repo — ayuda mucho a que el proyecto llegue a otras personas que usen Datadog y construyan con IA.
