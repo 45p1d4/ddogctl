@@ -101,6 +101,7 @@ def create_incident(
     Creates an incident with the most useful fields populated. Optional fields
     are only included when supplied so the API call stays minimal otherwise.
     """
+    import sys as _sys
     client = get_client_from_ctx(ctx)
     try:
         # Light client-side sanity checks — catch the obvious mistakes
@@ -109,6 +110,27 @@ def create_incident(
             raise typer.BadParameter(
                 f"--severity must be one of {VALID_SEVERITIES}, got {severity!r}"
             )
+
+        # Datadog enforces a 2048-char cap on the `summary` textbox field
+        # (server returns HTTP 400 if exceeded). Auto-truncate with an
+        # explicit marker and warn on stderr so the caller knows. The full
+        # payload can still be added later via `incidents update` or a
+        # timeline note. The marker text takes ~60 chars, so we trim to
+        # 1988 to leave headroom.
+        SUMMARY_MAX = 2048
+        TRIM_MARKER_TPL = "\n\n[truncated by ddogctl: original {orig} chars, max {max} — paste rest as a timeline note]"
+        if summary and len(summary) > SUMMARY_MAX:
+            marker = TRIM_MARKER_TPL.format(orig=len(summary), max=SUMMARY_MAX)
+            keep = SUMMARY_MAX - len(marker)
+            if keep < 100:
+                # Marker itself bigger than budget — fall back to a hard cut
+                summary = summary[:SUMMARY_MAX]
+            else:
+                summary = summary[:keep] + marker
+            _sys.stderr.write(
+                f"incidents create: summary > {SUMMARY_MAX} chars, truncated.\n"
+            )
+            _sys.stderr.flush()
 
         attrs: dict = {"title": title}
 
