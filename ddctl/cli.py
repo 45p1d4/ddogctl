@@ -52,8 +52,12 @@ def get_client_from_ctx(ctx: typer.Context) -> ApiClient:
     context_name = ctx.obj.get("context_name")
     config_path = ctx.obj.get("config_path")
     # No caching para simplicidad y evitar inconsistencias con cambios de opciones
-    client = ApiClient.create_from_context(context_name, config_path)
-    return client
+    try:
+        return ApiClient.create_from_context(context_name, config_path)
+    except Exception as exc:
+        # Config/credential problems: report cleanly instead of a traceback.
+        from .ui import cmd_name_from_ctx, fail
+        fail(ctx, cmd_name_from_ctx(ctx), exc)
 
 
 # Registrar sub-apps
@@ -103,3 +107,19 @@ def _load_banner() -> str:
 def guaf(debug: DebugOption = False) -> None:
     _console.print(_load_banner(), style="bold magenta")
 
+
+
+def run() -> None:
+    """
+    Console-script entry point.
+
+    On Windows, click expands glob patterns in argv by default, so a span or
+    log query like `--query "*"` was silently replaced by the list of files in
+    the current directory ("Got unexpected extra arguments"). Datadog queries
+    use `*` constantly, so disable that expansion.
+    """
+    app(windows_expand_args=False)
+
+
+if __name__ == "__main__":
+    run()

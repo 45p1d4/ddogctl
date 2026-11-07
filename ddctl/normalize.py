@@ -41,9 +41,12 @@ def coerce_attrs_map(obj: Any) -> Dict[str, Any]:
 def ts_to_iso(ts_raw: Any) -> str:
     if isinstance(ts_raw, (int, float)):
         v = float(ts_raw)
-        if v > 1e15:
+        # Epoch magnitude today: s ~1.7e9, ms ~1.7e12, µs ~1.7e15, ns ~1.7e18.
+        if v > 1e17:
             v /= 1e9
-        elif v > 1e12:
+        elif v > 1e14:
+            v /= 1e6
+        elif v > 1e11:
             v /= 1e3
         try:
             return datetime.fromtimestamp(v, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -61,17 +64,15 @@ def ts_to_iso(ts_raw: Any) -> str:
 
 
 def duration_to_ms(value: Any) -> float:
+    """
+    Span durations from the Datadog spans API are always nanoseconds.
+    (A magnitude heuristic is not safe here: a 5 ms span is 5_000_000 ns,
+    which would be indistinguishable from 5_000_000 µs.)
+    """
     try:
-        v = float(value or 0)
+        return round(float(value or 0) / 1_000_000.0, 2)
     except Exception:
         return 0.0
-    if v > 10_000_000:
-        return round(v / 1_000_000.0, 2)
-    if v > 10_000:
-        return round(v / 1000.0, 2)
-    if v <= 10:
-        return round(v * 1000.0, 2)
-    return round(v, 2)
 
 
 def normalize_monitor(raw: dict) -> dict:
@@ -154,7 +155,7 @@ def normalize_trace_span(raw: dict) -> dict:
         "resource": trunc(a.get("resource_name") or "", MAX_RESOURCE),
         "type": a.get("type", ""),
         "status": a.get("status", ""),
-        "dur_ms": round(float(dur_ns or 0) / 1e6, 2),
+        "dur_ms": duration_to_ms(dur_ns),
         "start": a.get("start_timestamp"),
     }
 
@@ -337,7 +338,10 @@ DEFAULT_FIELDS: Dict[str, List[str]] = {
     ],
     "synthetics.trigger": ["batch_id", "triggered_count", "locations"],
     "metrics.query": ["metric", "scope", "n_points", "last_ts", "last", "avg", "min", "max"],
-    "metrics.k8s": ["resource", "requests", "limits", "usage"],
+    "metrics.k8s": [
+        "resource", "unit", "requests", "limits",
+        "usage_avg", "usage_max", "usage_last", "usage_pct_of_requests",
+    ],
     "metrics.tag_cardinality": ["tag_key", "cardinality"],
     "services.list": ["name", "owner", "tier", "tags"],
     "services.get": ["name", "owner", "tier", "tags"],

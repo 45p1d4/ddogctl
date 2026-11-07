@@ -8,7 +8,7 @@ import yaml
 from rich.console import Console
 from rich.json import JSON as RichJSON
 from rich.table import Table
-from ..ui import new_table
+from ..ui import new_table, fail, is_json
 
 from ..cli import get_client_from_ctx
 from ..i18n import t
@@ -148,17 +148,9 @@ def apply_service(
         emit(ctx, "services.apply", {"name": service, "applied": True}, raw=resp, table_renderer=_render)
 
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red]")
-            console.print(RichJSON.from_data(exc.payload))
-        else:
-            console.print(
-                t(
-                    ERROR_MSG["es"].format(service=service),
-                    ERROR_MSG["en"].format(service=service),
-                )
-            )
-        raise typer.Exit(code=1) from exc
+        if not is_json(ctx):
+            console.print(t(ERROR_MSG["es"].format(service=service), ERROR_MSG["en"].format(service=service)))
+        fail(ctx, "services.apply", exc, debug)
     
 
 @app.command(
@@ -186,9 +178,7 @@ def get_service(
 
         emit(ctx, "services.get", normalized, raw=resp, table_renderer=_render)
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "services.get", exc, debug)
 
 
 @app.command(
@@ -215,6 +205,4 @@ def list_services(
 
         emit(ctx, "services.list", normalized, raw=resp, table_renderer=_render)
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "services.list", exc, debug)

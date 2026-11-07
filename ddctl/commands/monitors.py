@@ -10,7 +10,7 @@ from ..cli import get_client_from_ctx
 from ..i18n import t
 from ..options import DebugOption
 from ..normalize import normalize_monitor
-from ..ui import emit, new_table
+from ..ui import emit, new_table, fail
 
 app = typer.Typer(help=t("Operaciones sobre Monitors", "Monitors operations"))
 console = Console()
@@ -84,7 +84,7 @@ def list_monitors(
 
         emit(ctx, "monitors.list", normalized, raw=items, table_renderer=_render)
     except Exception as exc:
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "monitors.list", exc, debug)
 
 
 @app.command(
@@ -116,4 +116,4 @@ def mute_monitor(
             table_renderer=lambda: console.print(JSON.from_data(data)),
         )
     except Exception as exc:
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "monitors.mute", exc, debug)

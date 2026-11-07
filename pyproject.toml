@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ddogctl = "ddctl.cli:app"
+ddogctl = "ddctl.cli:run"
 
 [tool.setuptools.packages.find]
 where = ["."]

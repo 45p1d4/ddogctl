@@ -11,7 +11,7 @@ from ..api import ApiError
 from ..i18n import t
 from ..options import DebugOption
 from ..normalize import normalize_host
-from ..ui import emit, new_table
+from ..ui import emit, new_table, fail
 
 app = typer.Typer(help=t("Operaciones sobre Hosts (Infrastructure)", "Hosts (Infrastructure) operations"))
 console = Console()
@@ -58,8 +58,8 @@ def list_hosts(
             for r in normalized:
                 table.add_row(
                     str(r.get("name") or ""),
-                    str(r.get("up") or ""),
-                    str(r.get("muted") or ""),
+                    ("" if r.get("up") is None else str(r.get("up"))),
+                    ("" if r.get("muted") is None else str(r.get("muted"))),
                     ", ".join(r.get("apps") or []),
                     ", ".join(r.get("tags_relevant") or []),
                 )
@@ -74,9 +74,7 @@ def list_hosts(
             table_renderer=_render,
         )
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "hosts.list", exc, debug)
 
 
 @app.command(
@@ -105,9 +103,7 @@ def count_hosts(
 
         emit(ctx, "hosts.count", result, raw=resp, table_renderer=_render)
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "hosts.count", exc, debug)
 
 
 @app.command(
@@ -137,9 +133,7 @@ def mute_host(
         result = {"host": host, "muted": True, "end": resp.get("end")}
         emit(ctx, "hosts.mute", result, raw=resp, table_renderer=lambda: console.print(RichJSON.from_data(resp)))
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "hosts.mute", exc, debug)
 
 
 @app.command(
@@ -161,6 +155,4 @@ def unmute_host(
         result = {"host": host, "muted": False}
         emit(ctx, "hosts.unmute", result, raw=resp, table_renderer=lambda: console.print(RichJSON.from_data(resp)))
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "hosts.unmute", exc, debug)

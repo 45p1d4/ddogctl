@@ -10,7 +10,7 @@ from ..cli import get_client_from_ctx
 from ..i18n import t
 from ..options import DebugOption
 from ..normalize import normalize_synthetic_trigger
-from ..ui import emit
+from ..ui import emit, fail
 
 app = typer.Typer(help=t("Operaciones sobre Synthetics", "Synthetics operations"))
 console = Console()
@@ -46,5 +46,5 @@ def trigger_tests(
             table_renderer=lambda: console.print(JSON.from_data(data)),
         )
     except Exception as exc:
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "synthetics.trigger", exc, debug)
 

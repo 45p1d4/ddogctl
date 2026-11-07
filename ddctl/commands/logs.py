@@ -12,7 +12,7 @@ from ..i18n import t
 from ..options import DebugOption
 from rich.json import JSON as RichJSON
 from ..normalize import normalize_log
-from ..ui import emit, new_table
+from ..ui import emit, new_table, fail
 
 app = typer.Typer(help=t("Búsqueda de Logs", "Logs search"))
 console = Console()
@@ -96,5 +96,5 @@ def query_logs(
         meta = {"from": from_, "to": to, "query": payload["filter"]["query"]}
         emit(ctx, "logs.query", normalized, raw=items, meta=meta, table_renderer=_render)
     except Exception as exc:
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "logs.query", exc, debug)
 

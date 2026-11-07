@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from typing import Optional
 
 import typer
@@ -10,7 +11,7 @@ from ..cli import get_client_from_ctx
 from ..utils_time import parse_time
 from ..i18n import t
 from ..api import ApiError
-from ..ui import emit, new_table
+from ..ui import emit, new_table, fail
 
 app = typer.Typer(help=t("Operaciones de Métricas", "Metrics operations"))
 console = Console()
@@ -35,10 +36,32 @@ def _fmt_bytes(val: float) -> str:
     except Exception:
         return str(val)
 
+def _apply_rollup(q: str, rollup: Optional[int]) -> str:
+    """
+    GET /api/v1/query has no `rollup` parameter (it is silently ignored), so
+    the rollup must be part of the query itself: `<metric>{...}.rollup(avg, N)`.
+    Left untouched when the query already sets a rollup or is a formula with
+    several metrics (where a trailing rollup would only bind to the last one).
+    """
+    if not rollup or ".rollup(" in q:
+        return q
+    import re as _re
+    bare = _re.sub(r"\{[^}]*\}", "{}", q)  # tag values may contain '-' or ','
+    if _re.search(r"[+*/,]|\s-\s", bare):
+        sys.stderr.write(
+            f"warning: --rollup ignored for formula query; add .rollup(avg,{rollup}) to each metric\n"
+        )
+        return q
+    return f"{q}.rollup(avg,{int(rollup)})"
+
+
 def _query_last_point(client, q: str, start_s: int, end_s: int, rollup: Optional[int], debug: bool) -> Optional[float]:
-    params = {"from": start_s, "to": end_s, "query": q}
-    if rollup:
-        params["rollup"] = rollup
+    return _query_stats(client, q, start_s, end_s, rollup, debug)["last"]
+
+
+def _query_stats(client, q: str, start_s: int, end_s: int, rollup: Optional[int], debug: bool) -> dict:
+    """{last, avg, max} of the first series of `q` over the window (None when no data)."""
+    params = {"from": start_s, "to": end_s, "query": _apply_rollup(q, rollup)}
     with console.status(f"[dim]Consultando métricas[/dim] {q}"):
         resp = client.get("/api/v1/query", params=params) or {}
     if debug:
@@ -49,15 +72,22 @@ def _query_last_point(client, q: str, start_s: int, end_s: int, rollup: Optional
         except Exception:
             pass
     series = resp.get("series") or []
-    if not series:
-        return None
-    points = series[0].get("pointlist") or []
-    if not points:
-        return None
-    try:
-        return float(points[-1][1])
-    except Exception:
-        return None
+    vals = _point_values(series[0].get("pointlist") or []) if series else []
+    if not vals:
+        return {"last": None, "avg": None, "max": None}
+    return {"last": vals[-1], "avg": sum(vals) / len(vals), "max": max(vals)}
+
+
+def _point_values(points: list) -> list[float]:
+    """Numeric values of a pointlist, skipping null gaps (Datadog emits [ts, null])."""
+    out: list[float] = []
+    for p in points or []:
+        if isinstance(p, (list, tuple)) and len(p) >= 2 and p[1] is not None:
+            try:
+                out.append(float(p[1]))
+            except (TypeError, ValueError):
+                continue
+    return out
 
 
 @app.command(
@@ -87,9 +117,7 @@ def metrics_query(
     try:
         start = int(parse_time(from_).timestamp())
         end = int(parse_time(to).timestamp())
-        params = {"from": start, "to": end, "query": query}
-        if rollup:
-            params["rollup"] = rollup
+        params = {"from": start, "to": end, "query": _apply_rollup(query, rollup)}
         with console.status("[dim]Consultando series temporales[/dim]"):
             resp = client.get("/api/v1/query", params=params) or {}
         if debug:
@@ -107,10 +135,8 @@ def metrics_query(
                     return part
             return scope
 
-        def _sparkline(points: list[list]) -> str:
-            if not points:
-                return ""
-            vals = [p[1] for p in points if p and isinstance(p, list)]
+        def _sparkline(points: list) -> str:
+            vals = _point_values(points)
             if not vals:
                 return ""
             if len(vals) > spark_points:
@@ -127,42 +153,30 @@ def metrics_query(
                 res.append(blocks[idx])
             return "".join(res)
 
-        # sort by last value (desc) and limit
-        def _last_value(s: dict) -> float:
-            pl = s.get("pointlist") or []
-            if not pl:
-                return float("nan")
+        def _last_point(points: list):
+            """Last [ts_ms, value] whose value is not null, or None."""
+            for p in reversed(points or []):
+                if isinstance(p, (list, tuple)) and len(p) >= 2 and p[1] is not None:
+                    try:
+                        return p[0], float(p[1])
+                    except (TypeError, ValueError):
+                        continue
+            return None
+
+        def _fmt_ts(ts_ms) -> str:
             try:
-                return float(pl[-1][1])
+                return _dt.fromtimestamp(float(ts_ms) / 1000.0, tz=_tz.utc).strftime("%H:%M:%S")
             except Exception:
-                return float("nan")
+                return str(ts_ms)
 
-        series_sorted = sorted(series, key=_last_value, reverse=True)[:limit]
+        # sort by last value (desc) and limit; series without data go last
+        def _sort_key(s: dict) -> float:
+            lp = _last_point(s.get("pointlist") or [])
+            return lp[1] if lp else float("-inf")
 
-        # Build normalized rows for JSON contract
-        normalized_rows = []
+        series_sorted = sorted(series, key=_sort_key, reverse=True)[:limit]
+
         from datetime import datetime as _dt, timezone as _tz
-        for s in series_sorted:
-            metric = s.get("metric", "")
-            scope = _extract_scope(s)
-            points = s.get("pointlist") or []
-            row: dict = {"metric": str(metric), "scope": scope, "n_points": len(points)}
-            if points:
-                ts_ms, val = points[-1]
-                try:
-                    row["last_ts"] = _dt.fromtimestamp(ts_ms / 1000.0, tz=_tz.utc).strftime("%H:%M:%S")
-                except Exception:
-                    row["last_ts"] = str(int(ts_ms / 1000))
-                try:
-                    row["last"] = round(float(val), 4)
-                except Exception:
-                    row["last"] = val
-                vs = [p[1] for p in points if p and isinstance(p, list)]
-                if vs:
-                    row["avg"] = round(sum(vs) / len(vs), 4)
-                    row["min"] = round(min(vs), 4)
-                    row["max"] = round(max(vs), 4)
-            normalized_rows.append(row)
 
         table = new_table("Metrics (latest point per series)", {"from": from_, "to": to})
         table.add_column("metric", style="magenta")
@@ -176,35 +190,29 @@ def metrics_query(
         if spark:
             table.add_column("spark", style="green")
 
-        from datetime import datetime, timezone
-
+        # Build normalized rows for JSON contract + table rows from the same stats
+        normalized_rows = []
         for s in series_sorted:
             metric = s.get("metric", "")
             scope = _extract_scope(s)
             points = s.get("pointlist") or []
-            last_ts = ""
-            last_val = ""
-            avg_val = ""
-            min_val = ""
-            max_val = ""
-            if points:
-                # pointlist: [[ts_ms, value], ...]
-                ts_ms, val = points[-1]
-                try:
-                    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
-                    last_ts = dt.strftime("%H:%M:%S")
-                except Exception:
-                    last_ts = str(int(ts_ms / 1000))
-                last_val = _fmt_decimal(val)
-                vs = [p[1] for p in points if p and isinstance(p, list)]
-                if vs:
-                    avg_val = _fmt_decimal(sum(vs)/len(vs))
-                    min_val = _fmt_decimal(min(vs))
-                    max_val = _fmt_decimal(max(vs))
-            row = [str(metric), scope, str(len(points)), last_ts, last_val, avg_val, min_val, max_val]
+            row: dict = {"metric": str(metric), "scope": scope, "n_points": len(points)}
+            cells = [str(metric), scope, str(len(points)), "", "", "", "", ""]
+            lp = _last_point(points)
+            if lp:
+                ts_ms, val = lp
+                row["last_ts"] = _fmt_ts(ts_ms)
+                row["last"] = round(val, 4)
+                cells[3], cells[4] = row["last_ts"], _fmt_decimal(val)
+            vs = _point_values(points)
+            if vs:
+                avg, mn, mx = sum(vs) / len(vs), min(vs), max(vs)
+                row["avg"], row["min"], row["max"] = round(avg, 4), round(mn, 4), round(mx, 4)
+                cells[5], cells[6], cells[7] = _fmt_decimal(avg), _fmt_decimal(mn), _fmt_decimal(mx)
+            normalized_rows.append(row)
             if spark:
-                row.append(_sparkline(points))
-            table.add_row(*row)
+                cells.append(_sparkline(points))
+            table.add_row(*cells)
 
         emit(
             ctx,
@@ -215,9 +223,7 @@ def metrics_query(
             table_renderer=lambda: console.print(table),
         )
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "metrics.query", exc, debug)
 
 @app.command(
     "k8s-resources",
@@ -239,12 +245,15 @@ def k8s_resources(
 ) -> None:
     """
     Construye y ejecuta consultas para:
-      - cpu: sum:kubernetes.cpu.requests / sum:kubernetes.cpu.limits / sum:kubernetes.cpu.usage.total.as_rate()
+      - cpu: sum:kubernetes.cpu.requests / sum:kubernetes.cpu.limits / sum:kubernetes.cpu.usage.total (nanocores)
       - mem: sum:kubernetes.memory.requests / sum:kubernetes.memory.limits / sum:container.memory.usage
-    y muestra una tabla compacta con los últimos valores.
+    y muestra requests/limits (último valor) y usage (promedio y máximo de la ventana).
     """
     if not kube_service and not kube_deployment:
-        raise typer.BadParameter("Debe especificar --kube-service o --kube-deployment")
+        fail(ctx, "metrics.k8s", typer.BadParameter(t(
+            "Debe especificar --kube-service o --kube-deployment",
+            "Specify --kube-service or --kube-deployment",
+        )), debug)
     tag_filter = f"cluster:{cluster}"
     if kube_service:
         tag_filter += f",kube_service:{kube_service}"
@@ -258,8 +267,10 @@ def k8s_resources(
 
         q_cpu_req = f"sum:kubernetes.cpu.requests{{{tag_filter}}}"
         q_cpu_lim = f"sum:kubernetes.cpu.limits{{{tag_filter}}}"
-        # Uso de CPU como tasa (cores por segundo) desde el contador acumulativo; sumar todas las series
-        q_cpu_use = f"sum:kubernetes.cpu.usage.total{{{tag_filter}}}.as_rate()"
+        # kubernetes.cpu.usage.total is a *gauge* in nanocores (cores in use),
+        # not a cumulative counter, so no .as_rate(): it was a no-op on gauges
+        # and misleading. Verified against live data: value/1e9 ~ cores.
+        q_cpu_use = f"sum:kubernetes.cpu.usage.total{{{tag_filter}}}"
 
         q_mem_req = f"sum:kubernetes.memory.requests{{{tag_filter}}}"
         q_mem_lim = f"sum:kubernetes.memory.limits{{{tag_filter}}}"
@@ -267,23 +278,24 @@ def k8s_resources(
 
         cpu_req = _query_last_point(client, q_cpu_req, start, end, rollup, debug)
         cpu_lim = _query_last_point(client, q_cpu_lim, start, end, rollup, debug)
-        cpu_use = _query_last_point(client, q_cpu_use, start, end, rollup, debug)
-        # kubernetes.cpu.usage.total.as_rate() devuelve nanocores/seg -> convertir a cores
-        if cpu_use is not None:
-            try:
-                cpu_use = float(cpu_use) / 1_000_000_000.0
-            except Exception:
-                pass
+        # Usage is volatile minute to minute (e.g. 0.2 -> 1.9 -> 0.4 cores), so a
+        # single "last point" is misleading: report avg and max over the window.
+        cpu_use = _query_stats(client, q_cpu_use, start, end, rollup, debug)
+        # kubernetes.cpu.usage.total viene en nanocores -> convertir a cores
+        cpu_use = {k: (v / 1_000_000_000.0 if v is not None else None) for k, v in cpu_use.items()}
 
         mem_req = _query_last_point(client, q_mem_req, start, end, rollup, debug)
         mem_lim = _query_last_point(client, q_mem_lim, start, end, rollup, debug)
-        mem_use = _query_last_point(client, q_mem_use, start, end, rollup, debug)
+        mem_use = _query_stats(client, q_mem_use, start, end, rollup, debug)
 
-        table = new_table("K8s resources", {"cluster": cluster, "service": kube_service or kube_deployment or "", "from": from_, "to": to})
+        target = kube_deployment or kube_service or ""
+        table = new_table("K8s resources", {"cluster": cluster, "service": target, "from": from_, "to": to})
         table.add_column("resource", style="magenta")
         table.add_column("requests", style="cyan", no_wrap=True)
         table.add_column("limits", style="cyan", no_wrap=True)
-        table.add_column("usage", style="yellow", no_wrap=True)
+        table.add_column("usage avg", style="yellow", no_wrap=True)
+        table.add_column("usage max", style="yellow", no_wrap=True)
+        table.add_column("avg/req", style="white", no_wrap=True)
 
         def fmt(val, unit):
             if val is None:
@@ -295,24 +307,55 @@ def k8s_resources(
                 return f"{_fmt_decimal(val * 1000)} mCores"
             return f"{_fmt_decimal(val)} cores"
 
-        table.add_row("cpu", fmt(cpu_req, "cores"), fmt(cpu_lim, "cores"), fmt(cpu_use, "cores"))
-        table.add_row("memory", fmt(mem_req, "bytes"), fmt(mem_lim, "bytes"), fmt(mem_use, "bytes"))
+        def pct(use, req):
+            if use is None or not req:
+                return None
+            return round(use / req * 100, 1)
 
-        rows = [
-            {"resource": "cpu", "requests": cpu_req, "limits": cpu_lim, "usage": cpu_use, "unit": "cores"},
-            {"resource": "memory", "requests": mem_req, "limits": mem_lim, "usage": mem_use, "unit": "bytes"},
-        ]
-        emit(
-            ctx,
-            "metrics.k8s",
-            rows,
-            meta={"cluster": cluster, "kube_service": kube_service, "kube_deployment": kube_deployment, "from": from_, "to": to},
-            table_renderer=lambda: console.print(table),
+        rows = []
+        for name, unit, req, lim, use in (
+            ("cpu", "cores", cpu_req, cpu_lim, cpu_use),
+            ("memory", "bytes", mem_req, mem_lim, mem_use),
+        ):
+            row = {
+                "resource": name, "unit": unit, "requests": req, "limits": lim,
+                "usage_avg": use["avg"], "usage_max": use["max"], "usage_last": use["last"],
+                "usage_pct_of_requests": pct(use["avg"], req),
+            }
+            rows.append(row)
+            p_ = row["usage_pct_of_requests"]
+            table.add_row(
+                name, fmt(req, unit), fmt(lim, unit), fmt(use["avg"], unit), fmt(use["max"], unit),
+                "-" if p_ is None else f"{p_}%",
+            )
+
+        # 3) Say so when nothing matched instead of a silent table of dashes.
+        no_data = all(
+            v is None for r in rows for v in (r["requests"], r["limits"], r["usage_avg"])
         )
+        hint = None
+        if no_data:
+            tag = "kube_deployment" if kube_deployment else "kube_service"
+            hint = t(
+                f"Sin datos para cluster:{cluster} + {tag}:{target} en el rango. Revisa los nombres, p.ej.: "
+                f"ddogctl metrics query --query 'sum:kubernetes.cpu.requests{{cluster:{cluster}}} by {{{tag}}}' --scope-tag {tag}",
+                f"No data for cluster:{cluster} + {tag}:{target} in range. Check the names, e.g.: "
+                f"ddogctl metrics query --query 'sum:kubernetes.cpu.requests{{cluster:{cluster}}} by {{{tag}}}' --scope-tag {tag}",
+            )
+
+        def _render() -> None:
+            console.print(table)
+            if hint:
+                console.print(f"[yellow]{hint}[/yellow]")
+
+        meta = {"cluster": cluster, "kube_service": kube_service, "kube_deployment": kube_deployment,
+                "from": from_, "to": to, "rollup": rollup}
+        if no_data:
+            meta["no_data"] = True
+            meta["hint"] = hint
+        emit(ctx, "metrics.k8s", rows, meta=meta, table_renderer=_render)
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "metrics.k8s", exc, debug)
 
 
 @app.command(
@@ -365,7 +408,5 @@ def metrics_tag_cardinality(
 
         emit(ctx, "metrics.tag_cardinality", rows, raw=resp, meta={"metric": metric}, table_renderer=_render)
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "metrics.tag_cardinality", exc, debug)
 

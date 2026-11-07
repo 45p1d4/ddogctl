@@ -8,7 +8,7 @@ from ..cli import get_client_from_ctx
 from ..i18n import t
 from ..api import ApiError
 from ..normalize import normalize_dashboard_detail
-from ..ui import emit
+from ..ui import emit, fail
 
 app = typer.Typer(help=t("Operaciones sobre Dashboards", "Dashboards operations"))
 console = Console()
@@ -40,7 +40,5 @@ def get_dashboard(
             table_renderer=lambda: console.print(JSON.from_data(data)),
         )
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "dashboards.get", exc, debug)
 
