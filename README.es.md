@@ -62,7 +62,8 @@ todo desde un único binario, con ayuda bilingüe (Español / Inglés).
 - **JSON compacto** con `--json`: `{cmd, n, data, meta}`, una sola línea, sin espacios y con nombres de campos estables.
 - **Whitelist por defecto**: cada comando publica un conjunto de campos curado para la pregunta que responde (mira `DEFAULT_FIELDS` en `ddctl/normalize.py`).
 - **Escape**: añade `--full` cuando realmente necesites el payload crudo de Datadog.
-- **Errores también estructurados**: `{cmd, error:{type, message, status, payload}}` — los agentes pueden bifurcar por `status` sin tener que parsear texto.
+- **Errores también estructurados**: `{cmd, error:{code, retryable, type, message, status, payload, suggestions}}`. `code` es estable (`auth_required`, `permission_denied`, `not_found`, `bad_request`, `rate_limited`, `server_error`, `timeout`, `network_error`, `validation_error`, `config_error`, `error`) y `retryable` indica si reintentar puede servir — ver `ddctl/errors.py`.
+- **Autodescriptivo**: `ddogctl --json commands` devuelve todos los comandos con sus opciones y si modifican estado; `ddogctl doctor` indica qué puede y qué no puede leer con las credenciales actuales.
 - **Ahorro de tokens**: en benchmarks internos de triage SRE, los payloads de `ddogctl --json` resultaron **hasta ~88% más pequeños** que las mismas consultas vía el MCP oficial de Datadog, reduciendo costo y latencia.
 
 Definición mínima de tool para Claude (Anthropic Tools API / Claude Code):
@@ -288,6 +289,45 @@ ddogctl url dashboard --id abc-123
 ddogctl url incident  --id 17
 ```
 El host base se infiere del `site` del contexto activo (o `--base`).
+
+### doctor
+Revisa el origen de la config (variables de entorno vs YAML), credenciales, conectividad, API key (detecta el
+`DD_SITE` correcto si elegiste otra región), application key y acceso de lectura por área de la API
+(monitors, logs, APM, métricas, hosts, incidents, RUM, downtimes, catálogo, dashboards, synthetics). Solo lectura.
+```bash
+ddogctl doctor             # exit 1 solo si algo está roto
+ddogctl doctor --strict    # exit 1 también si un área de la API está prohibida
+```
+
+### commands
+```bash
+ddogctl --json commands          # catálogo completo: opciones, tipos, defaults, si modifica estado
+ddogctl commands --brief
+```
+
+### security (infosec, solo lectura)
+Análisis de seguridad sobre spans de APM. La evidencia siempre sale **redactada** (los secretos se enmascaran
+y se ignoran los valores que el tracer ya ofuscó). Detrás de una CDN la IP del cliente se toma de
+`X-Forwarded-For` (la primera IP pública que no sea de la CDN); los rangos de borde de CDN nunca se reportan
+como atacantes.
+```bash
+# Un trace: secretos/IDs de sesión/PII en URLs, credenciales o tokens (JWT, claves cloud) en tags,
+# payloads de inyección (SQLi/XSS/traversal/cmd/JNDI), rutas de escáner, HTTP sin TLS a hosts externos
+ddogctl security trace-scan --trace-id <id> --from now-24h
+
+# Una ventana de tiempo: firmas de ataque (conteo en servidor, confirmado en una muestra), fuentes de
+# fallos de auth, enumeración de rutas 404 por IP y campañas distribuidas (muchas IPs rotando en un /16)
+ddogctl security discover --query "env:prd" --from now-1h
+
+# Un endpoint/servicio: quién lo está golpeando — user agents clasificados (navegador, crawler de
+# buscador/red social/IA, librería HTTP, headless, escáner, vacío), crawlers falsos (Googlebot desde un AS
+# que no es de Google), ASN de datacenter, IPs reales con % de 4xx y rutas distintas, heurísticas de
+# botnet y headers maliciosos
+ddogctl security endpoint-scan --service traefik --from now-1h
+ddogctl security endpoint-scan --path "/api/reviews*" --from now-24h
+```
+Los chequeos de headers solo ven los headers que capturan tus tracers; añade más con `DD_TRACE_HEADER_TAGS`
+(p. ej. `referer`, `true-client-ip`, `x-original-url`).
 
 ---
 

@@ -5,6 +5,12 @@ from typing import Any, Dict, Optional, Tuple
 import yaml
 
 
+class ConfigError(RuntimeError):
+    """Missing/invalid credentials or config file (error code: config_error)."""
+
+    error_code = "config_error"
+
+
 def _default_config_path() -> Path:
     return Path(os.path.expanduser("~")) / ".config" / "ddctl" / "config.yaml"
 
@@ -17,9 +23,9 @@ def load_config(path: Optional[str]) -> Dict[str, Any]:
         try:
             data = yaml.safe_load(f) or {}
         except yaml.YAMLError as exc:
-            raise RuntimeError(f"Error al parsear YAML de config: {exc}") from exc
+            raise ConfigError(f"Error al parsear YAML de config: {exc}") from exc
     if not isinstance(data, dict):
-        raise RuntimeError("El archivo de configuración debe contener un mapeo YAML.")
+        raise ConfigError("El archivo de configuración debe contener un mapeo YAML.")
     return data
 
 
@@ -50,7 +56,7 @@ def resolve_context(
                 ctx = ctxs.get(context_name or "prd") or {}
             site = (ctx or {}).get("site") or ""
         if not site:
-            raise RuntimeError(
+            raise ConfigError(
                 "Could not resolve 'site'. Define it in DD_SITE or in the YAML context."
             )
         return site, api_key, app_key
@@ -59,21 +65,21 @@ def resolve_context(
     cfg = load_config(config_path)
     contexts = cfg.get("contexts") if isinstance(cfg, dict) else None
     if not contexts or not isinstance(contexts, dict):
-        raise RuntimeError(
+        raise ConfigError(
             "No credentials in env and no contexts in YAML. "
             "Set DD_SITE/DD_API_KEY/DD_APP_KEY or create the configuration file."
         )
     selected = context_name or "prd"
     ctx = contexts.get(selected)
     if not ctx or not isinstance(ctx, dict):
-        raise RuntimeError(
+        raise ConfigError(
             f"Context '{selected}' not found in configuration file."
         )
     site = ctx.get("site") or ""
     api_key = ctx.get("api_key")
     app_key = ctx.get("app_key")
     if not site:
-        raise RuntimeError(
+        raise ConfigError(
             f"Context '{selected}' is missing 'site'."
         )
     return site, api_key, app_key
