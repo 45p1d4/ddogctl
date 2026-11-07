@@ -62,7 +62,8 @@ all behind a single binary, with bilingual help (English / Spanish).
 - **Compact JSON** with `--json`: `{cmd, n, data, meta}`, single‑line, no whitespace, stable field names.
 - **Whitelisted by default**: each command publishes a curated field set tailored to the question being asked (see `DEFAULT_FIELDS` in `ddctl/normalize.py`).
 - **Escape hatch**: add `--full` to keep the full Datadog payload when you really need it.
-- **Errors are structured too**: `{cmd, error:{type, message, status, payload}}` — agents can branch on `status` without parsing prose.
+- **Errors are structured too**: `{cmd, error:{code, retryable, type, message, status, payload, suggestions}}`. `code` is stable (`auth_required`, `permission_denied`, `not_found`, `bad_request`, `rate_limited`, `server_error`, `timeout`, `network_error`, `validation_error`, `config_error`, `error`) and `retryable` tells the agent whether retrying can help — see `ddctl/errors.py`.
+- **Self-describing**: `ddogctl --json commands` returns every command with its options and whether it mutates state; `ddogctl doctor` tells the agent what the current credentials can and cannot read.
 - **Token‑efficient**: in internal SRE triage benchmarks, `ddogctl --json` payloads were **up to ~88% smaller** than the equivalent calls through the official Datadog MCP server, reducing both cost and latency.
 
 Minimal Claude tool definition (Anthropic Tools API / Claude Code):
@@ -287,6 +288,43 @@ ddogctl url dashboard --id abc-123
 ddogctl url incident  --id 17
 ```
 Base host is inferred from the active context's `site` (or `--base`).
+
+### doctor
+Checks config source (env vs YAML), credentials, connectivity, API key (detects the right `DD_SITE` if you
+picked the wrong region), application key, and read access per API area (monitors, logs, APM, metrics,
+hosts, incidents, RUM, downtimes, catalog, dashboards, synthetics). Read-only.
+```bash
+ddogctl doctor             # exit 1 only when something is broken
+ddogctl doctor --strict    # exit 1 also when an API area is forbidden
+```
+
+### commands
+```bash
+ddogctl --json commands          # full catalog: options, types, defaults, mutating/offline flags
+ddogctl commands --brief
+```
+
+### security (infosec, read-only)
+Security analysis over APM spans. Evidence is always **redacted** (secrets are masked, values already
+scrubbed by the tracer are ignored). Behind a CDN, client IPs are taken from `X-Forwarded-For`
+(left-most public, non-CDN IP); known CDN edge ranges are never reported as attackers.
+```bash
+# One trace: secrets/session IDs/PII in URLs, credentials or tokens (JWT, cloud keys) in span tags,
+# injection payloads (SQLi/XSS/traversal/cmd/JNDI), scanner probe paths, cleartext HTTP to external hosts
+ddogctl security trace-scan --trace-id <id> --from now-24h
+
+# A time window: attack signatures (server-side count, confirmed on a sample), auth-failure sources,
+# 404 path enumeration per IP, and distributed campaigns (many rotating IPs in one /16)
+ddogctl security discover --query "env:prd" --from now-1h
+
+# One endpoint/service: who is hitting it — user agents classified (browser, search/social/AI crawler,
+# HTTP library, headless, scanner, empty), fake crawlers (Googlebot from a non-Google AS), datacenter
+# ASNs, top real client IPs with 4xx ratio and distinct paths, botnet heuristics, malicious headers
+ddogctl security endpoint-scan --service traefik --from now-1h
+ddogctl security endpoint-scan --path "/api/reviews*" --from now-24h
+```
+Header checks only see the headers your tracers capture; add more with `DD_TRACE_HEADER_TAGS`
+(e.g. `referer`, `true-client-ip`, `x-original-url`).
 
 ---
 

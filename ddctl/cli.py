@@ -94,6 +94,14 @@ app.add_typer(hosts_cmd.app, name="hosts")
 app.add_typer(downtimes_cmd.app, name="downtimes")
 app.add_typer(url_cmd.app, name="url")
 
+from .commands import catalog as catalog_cmd  # noqa: E402
+from .commands import doctor as doctor_cmd  # noqa: E402
+from .commands import security as security_cmd  # noqa: E402
+
+app.add_typer(security_cmd.app, name="security")
+doctor_cmd.register(app)
+catalog_cmd.register(app)
+
 _console = Console()
 
 def _load_banner() -> str:

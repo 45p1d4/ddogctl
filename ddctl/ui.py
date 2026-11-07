@@ -114,18 +114,17 @@ def emit(
         table_renderer()
 
 
-def emit_error(ctx: typer.Context, cmd: str, exc: Exception) -> None:
-    """When --json is active, write error JSON to stdout so Claude Code can parse it."""
+def emit_error(ctx: typer.Context, cmd: str, exc: BaseException) -> None:
+    """
+    When --json is active, write error JSON to stdout so agents can parse it:
+    {"cmd", "error": {"code", "type", "message", "retryable", "status"?, "payload"?, "suggestions"?}}
+    `code` is stable (see ddctl.errors.ERROR_CODES).
+    """
     if not is_json(ctx):
         return
-    err: Dict[str, Any] = {"type": exc.__class__.__name__, "message": str(exc)}
-    status = getattr(exc, "status_code", None)
-    if status is not None:
-        err["status"] = status
-    payload = getattr(exc, "payload", None)
-    if payload is not None:
-        err["payload"] = payload
-    out = {"cmd": cmd, "error": err}
+    from .errors import describe_error
+
+    out = {"cmd": cmd, "error": describe_error(exc, cmd, _error_message(exc))}
     sys.stdout.write(_json.dumps(out, separators=(",", ":"), default=str) + "\n")
 
 
@@ -151,9 +150,14 @@ def fail(ctx: typer.Context, cmd: str, exc: BaseException, debug: bool = False) 
     if isinstance(exc, typer.Exit):
         raise exc
     if is_json(ctx):
-        emit_error(ctx, cmd, exc)  # type: ignore[arg-type]
+        emit_error(ctx, cmd, exc)
     else:
-        sys.stderr.write(f"Error ({cmd}): {_error_message(exc)}\n")
+        from .errors import describe_error
+
+        info = describe_error(exc, cmd, _error_message(exc))
+        sys.stderr.write(f"Error ({cmd}) [{info['code']}]: {info['message']}\n")
+        for s in info.get("suggestions", [])[:2]:
+            sys.stderr.write(f"  hint: {s}\n")
     if debug:
         traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
     sys.stderr.flush()
