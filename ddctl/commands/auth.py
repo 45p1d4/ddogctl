@@ -8,7 +8,7 @@ from rich.json import JSON as RichJSON
 from ..cli import get_client_from_ctx
 from ..i18n import t
 from ..options import DebugOption
-from ..ui import emit
+from ..ui import emit, fail
 
 app = typer.Typer(help=t("Comandos de autenticación", "Authentication commands"))
 console = Console()
@@ -42,5 +42,5 @@ def status(ctx: typer.Context, debug: DebugOption = False) -> None:
 
         emit(ctx, "auth.status", result, raw=data, table_renderer=_render)
     except Exception as exc:
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "auth.status", exc, debug)
 

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json as _json
 import sys
-from typing import Any, Callable, Dict, Iterable, List, Optional
+import traceback
+from typing import Any, Callable, Dict, Iterable, List, NoReturn, Optional
 
 import typer
 from rich.table import Table
@@ -126,4 +127,41 @@ def emit_error(ctx: typer.Context, cmd: str, exc: Exception) -> None:
         err["payload"] = payload
     out = {"cmd": cmd, "error": err}
     sys.stdout.write(_json.dumps(out, separators=(",", ":"), default=str) + "\n")
+
+
+def _error_message(exc: BaseException) -> str:
+    # click/typer usage errors (e.g. BadParameter) expose a clean message.
+    fmt = getattr(exc, "format_message", None)
+    if callable(fmt):
+        try:
+            return str(fmt())
+        except Exception:
+            pass
+    return str(exc) or exc.__class__.__name__
+
+
+def fail(ctx: typer.Context, cmd: str, exc: BaseException, debug: bool = False) -> NoReturn:
+    """
+    Report a command failure and exit with code 1.
+
+    - With --json: a single `{cmd, error}` JSON line on stdout (parseable).
+    - Without --json: a one-line error on stderr (never pollutes stdout).
+    - With --debug: the full traceback on stderr as well.
+    """
+    if isinstance(exc, typer.Exit):
+        raise exc
+    if is_json(ctx):
+        emit_error(ctx, cmd, exc)  # type: ignore[arg-type]
+    else:
+        sys.stderr.write(f"Error ({cmd}): {_error_message(exc)}\n")
+    if debug:
+        traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+    sys.stderr.flush()
+    raise typer.Exit(code=1) from exc
+
+
+def cmd_name_from_ctx(ctx: typer.Context) -> str:
+    """'ddogctl apm spans list' -> 'apm.spans.list'."""
+    parts = (ctx.command_path or "").split()[1:]
+    return ".".join(parts) or "ddogctl"
 

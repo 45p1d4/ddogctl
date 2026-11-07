@@ -22,7 +22,7 @@ from ..normalize import (
     trunc as _trunc,
     ts_to_iso as _ts_to_iso,
 )
-from ..ui import emit, new_table, build_title
+from ..ui import emit, new_table, build_title, fail
 
 app = typer.Typer(help=t("Operaciones de APM", "APM operations"))
 console = Console()
@@ -90,24 +90,11 @@ def _extract_buckets(resp: dict) -> List[dict]:
 
 
 def _format_ts_parts(ts_raw) -> tuple[str, str]:
-    if isinstance(ts_raw, (int, float)):
-        try:
-            # assume ns
-            dt = datetime.fromtimestamp(float(ts_raw) / 1_000_000_000.0, tz=timezone.utc)
-            return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
-        except Exception:
-            return "", str(ts_raw)
-    if isinstance(ts_raw, str) and ts_raw:
-        try:
-            dt = dateutil_parser.parse(ts_raw)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            else:
-                dt = dt.astimezone(timezone.utc)
-            return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
-        except Exception:
-            return "", ts_raw
-    return "", ""
+    # Reuse the unit-aware (s/ms/µs/ns) conversion from normalize.ts_to_iso.
+    iso = _ts_to_iso(ts_raw)
+    if isinstance(iso, str) and len(iso) == 20 and iso[10] == "T":
+        return iso[:10], iso[11:19]
+    return "", str(ts_raw or "")
 
 
 def _render_spans_table(items: List[dict]) -> None:
@@ -157,17 +144,13 @@ def _render_spans_table(items: List[dict]) -> None:
             or nested.get("status")
             or ""
         )
-        # Duration can be in ns (common). Fall back to ms if provided.
-        duration = (
-            attrs.get("duration")
-            or nested.get("duration")
-            or nested.get("duration.ms")
-            or 0
-        )
+        # Span durations are nanoseconds; `duration.ms` (if present) is ms.
         try:
-            # Many span durations are ns; convert to ms if duration seems large
-            d = float(duration)
-            duration_s = d / 1_000_000_000.0 if d > 10_000_000 else d / 1000.0
+            ns = attrs.get("duration") or nested.get("duration")
+            if ns:
+                duration_s = float(ns) / 1_000_000_000.0
+            else:
+                duration_s = float(nested.get("duration.ms") or 0) / 1000.0
         except Exception:
             duration_s = 0.0
         error_msg = (
@@ -288,12 +271,7 @@ def spans_list(
             table_renderer=lambda: _render_spans_table(items),
         )
     except Exception as exc:
-        if debug:
-            if isinstance(exc, ApiError):
-                console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-            else:
-                console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "spans.list", exc, debug)
 
 
 @spans_app.command(
@@ -351,12 +329,7 @@ def spans_search(
             table_renderer=lambda: _render_spans_table(items),
         )
     except Exception as exc:
-        if debug:
-            if isinstance(exc, ApiError):
-                console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-            else:
-                console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "spans.search", exc, debug)
 
 
 def _error_query(service: Optional[str], extra: Optional[str], env: Optional[str] = None) -> str:
@@ -442,8 +415,7 @@ def errors_top_resources(
             table_renderer=_render,
         )
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "errors.top_resources", exc, debug)
 
 
 @errors_app.command(
@@ -521,8 +493,7 @@ def errors_rate(
             table_renderer=_render,
         )
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "errors.rate", exc, debug)
 
 
 # --------------------------------------------------------------------------
@@ -601,12 +572,7 @@ def trace_get(
 
         emit(ctx, "trace.get", normalized, raw=items, meta=meta, table_renderer=_render)
     except Exception as exc:
-        if debug:
-            if isinstance(exc, ApiError):
-                console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-            else:
-                console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "trace.get", exc, debug)
 
 
 # --------------------------------------------------------------------------
@@ -754,12 +720,7 @@ def spans_aggregate(
         }
         emit(ctx, "spans.aggregate", rows, raw=data, fields=dynamic_fields, meta=meta, table_renderer=_render)
     except Exception as exc:
-        if debug:
-            if isinstance(exc, ApiError):
-                console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-            else:
-                console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "spans.aggregate", exc, debug)
 
 
 # --------------------------------------------------------------------------
@@ -815,12 +776,21 @@ def trace_timeseries(
             n, u = int(interval[:-1]), interval[-1]
             bucket_secs = n * unit_secs[u]
         except Exception:
+            bucket_secs = 0
+        if bucket_secs <= 0:
             raise typer.BadParameter(f"--interval must look like 5m, 1h, 4h, 1d (got {interval!r})")
         total = (dt_to - dt_from).total_seconds()
-        n_buckets = int(total // bucket_secs) + (1 if total % bucket_secs else 0)
+        # --from/--to are parsed at slightly different instants, so `now-1h..now`
+        # measures 3600.0001s; ignore sub-second remainders instead of issuing
+        # a near-empty trailing bucket (Datadog answers those with HTTP 408).
+        n_buckets = int(total // bucket_secs) + (1 if total % bucket_secs >= 1 else 0)
         if n_buckets > 24:
+            # Keep the most recent window: shift `from` forward so the 24
+            # buckets end at `to` (otherwise the newest data is dropped).
+            dt_from = dt_to - timedelta(seconds=24 * bucket_secs)
             sys.stderr.write(
-                f"warning: {n_buckets} buckets — capping to 24. Increase --interval to widen.\n"
+                f"warning: {n_buckets} buckets — capping to the last 24 "
+                f"(from {to_iso8601(dt_from)}). Increase --interval to widen.\n"
             )
             sys.stderr.flush()
             n_buckets = 24
@@ -846,7 +816,8 @@ def trace_timeseries(
                     return client.post("/api/v2/spans/analytics/aggregate", json=body) or {}
                 except ApiError as e:
                     last_exc = e
-                    if e.status_code is None or e.status_code < 500 or attempt >= max_retries:
+                    retriable = e.status_code is not None and (e.status_code >= 500 or e.status_code in (408, 429))
+                    if not retriable or attempt >= max_retries:
                         raise
                     sys.stderr.write(
                         f"trace_timeseries: HTTP {e.status_code} on bucket, "
@@ -933,14 +904,5 @@ def trace_timeseries(
                 "metric": metric, "from": from_, "to": to}
         emit(ctx, "trace.timeseries", rows, raw=data, fields=dynamic_fields, meta=meta, table_renderer=_render)
     except Exception as exc:
-        # ALWAYS log the exception to stderr — silently swallowing it makes
-        # downstream parsers see exit=1 with no diagnostic, which is worse
-        # than a noisy stderr line.
-        import traceback as _tb
-        sys.stderr.write(f"trace_timeseries error: {type(exc).__name__}: {exc}\n")
-        if debug:
-            _tb.print_exc(file=sys.stderr)
-            if isinstance(exc, ApiError):
-                console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "trace.timeseries", exc, debug)
 

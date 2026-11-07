@@ -11,7 +11,7 @@ from ..cli import get_client_from_ctx
 from ..i18n import t
 from ..options import DebugOption
 from ..normalize import normalize_incident
-from ..ui import emit, new_table
+from ..ui import emit, new_table, fail
 
 app = typer.Typer(help=t("Operaciones sobre Incidents", "Incidents operations"))
 console = Console()
@@ -194,9 +194,7 @@ def create_incident(
             table_renderer=lambda: console.print(JSON.from_data(data)),
         )
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "incidents.create", exc, debug)
 
 
 # --------------------------------------------------------------------------
@@ -224,16 +222,23 @@ def list_incidents(
 ) -> None:
     client = get_client_from_ctx(ctx)
     try:
-        params: dict = {"page[size]": page_size}
+        total = None
         if state:
-            # filter in the response since the v2 list endpoint's query syntax
-            # for state is inconsistent across versions
-            pass
-        with console.status("[dim]Listando incidentes[/dim]"):
-            data = client.get("/api/v2/incidents", params=params) or {}
-        items = data.get("data") or []
-        if state:
-            items = [i for i in items if (i.get("attributes") or {}).get("state") == state]
+            # Filter server-side via the search endpoint. Filtering the plain
+            # list client-side only looked at the first page, so e.g.
+            # `--state active` returned nothing whenever the newest
+            # `page_size` incidents happened to be resolved.
+            params: dict = {"query": f"state:{state}", "page[size]": page_size}
+            with console.status("[dim]Buscando incidentes[/dim]"):
+                data = client.get("/api/v2/incidents/search", params=params) or {}
+            attrs = ((data.get("data") or {}).get("attributes") or {}) if isinstance(data, dict) else {}
+            items = [(i.get("data") or i) for i in (attrs.get("incidents") or []) if isinstance(i, dict)]
+            total = attrs.get("total")
+        else:
+            params = {"page[size]": page_size}
+            with console.status("[dim]Listando incidentes[/dim]"):
+                data = client.get("/api/v2/incidents", params=params) or {}
+            items = data.get("data") or []
         normalized = [normalize_incident(i) for i in items]
 
         def _render() -> None:
@@ -258,13 +263,11 @@ def list_incidents(
             "incidents.list",
             normalized,
             raw=data,
-            meta={"state": state, "count": len(items)},
+            meta={"state": state, "count": len(items), "total": total},
             table_renderer=_render,
         )
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "incidents.list", exc, debug)
 
 
 # --------------------------------------------------------------------------
@@ -297,9 +300,7 @@ def get_incident(
             table_renderer=lambda: console.print(JSON.from_data(data)),
         )
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "incidents.get", exc, debug)
 
 
 # --------------------------------------------------------------------------
@@ -331,8 +332,8 @@ def list_fields(
     try:
         with console.status("[dim]Listando teams[/dim]"):
             r = client.get("/api/v2/team", params={"page[size]": 100})
-        for t in (r or {}).get("data") or []:
-            handle = (t.get("attributes") or {}).get("handle")
+        for team_item in (r or {}).get("data") or []:
+            handle = (team_item.get("attributes") or {}).get("handle")
             if handle:
                 teams.append(handle)
     except ApiError as e:

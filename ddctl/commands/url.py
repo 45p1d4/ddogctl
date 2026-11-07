@@ -15,6 +15,7 @@ import typer
 from rich.console import Console
 
 from ..i18n import t
+from ..options import DebugOption
 from ..ui import emit
 from ..utils_time import parse_time
 
@@ -34,12 +35,18 @@ def _site_to_base(site: Optional[str]) -> str:
     """`datadoghq.com` -> https://app.datadoghq.com  (and EU/US3 etc.)."""
     if not site:
         return DEFAULT_BASE
+    site = site.strip().lower()
+    # Regional sites with a prefix (us3/us5/ap1/ap2...) serve the UI on the
+    # site host itself, e.g. https://us5.datadoghq.com — not app.us5....
+    if site.count(".") >= 2:
+        return f"https://{site}"
+    # datadoghq.com, datadoghq.eu, ddog-gov.com -> app.<site>
     return f"https://app.{site}"
 
 
 def _base(ctx: typer.Context, override: Optional[str]) -> str:
     if override:
-        return override
+        return override.rstrip("/")
     # Try to resolve from the context name -> YAML site (no API call needed).
     try:
         from ..config import resolve_context
@@ -64,10 +71,11 @@ def trace_url(
     from_: str = typer.Option("now-1h", "--from", help=t("Inicio del rango", "Range start"), show_default=True),
     to: str = typer.Option("now", "--to", help=t("Fin del rango", "Range end"), show_default=True),
     base: Optional[str] = typer.Option(None, "--base", help=t("Override del base URL DD", "Override DD base URL")),
+    debug: DebugOption = False,
 ) -> None:
     b = _base(ctx, base)
     start_ms, end_ms = _ms(from_), _ms(to)
-    url = f"{b}/apm/trace/{trace_id}?start={start_ms}&end={end_ms}"
+    url = f"{b}/apm/trace/{up.quote(trace_id, safe='')}?start={start_ms}&end={end_ms}"
     emit(
         ctx, "url.trace",
         {"url": url, "trace_id": trace_id, "from": from_, "to": to, "start_ms": start_ms, "end_ms": end_ms},
@@ -85,6 +93,7 @@ def explorer_url(
     from_: str = typer.Option("now-24h", "--from", help=t("Inicio del rango", "Range start"), show_default=True),
     to: str = typer.Option("now", "--to", help=t("Fin del rango", "Range end"), show_default=True),
     base: Optional[str] = typer.Option(None, "--base"),
+    debug: DebugOption = False,
 ) -> None:
     b = _base(ctx, base)
     start_ms, end_ms = _ms(from_), _ms(to)
@@ -108,10 +117,12 @@ def service_url(
     from_: str = typer.Option("now-24h", "--from", help=t("Inicio del rango", "Range start"), show_default=True),
     to: str = typer.Option("now", "--to", help=t("Fin del rango", "Range end"), show_default=True),
     base: Optional[str] = typer.Option(None, "--base"),
+    debug: DebugOption = False,
 ) -> None:
     b = _base(ctx, base)
     start_ms, end_ms = _ms(from_), _ms(to)
-    url = f"{b}/apm/services/{service}?env={env}&start={start_ms}&end={end_ms}"
+    qs = up.urlencode({"env": env, "start": start_ms, "end": end_ms})
+    url = f"{b}/apm/services/{up.quote(service, safe='')}?{qs}"
     emit(
         ctx, "url.service",
         {"url": url, "service": service, "env": env, "from": from_, "to": to,
@@ -130,6 +141,7 @@ def logs_url(
     from_: str = typer.Option("now-1h", "--from", help=t("Inicio del rango", "Range start"), show_default=True),
     to: str = typer.Option("now", "--to", help=t("Fin del rango", "Range end"), show_default=True),
     base: Optional[str] = typer.Option(None, "--base"),
+    debug: DebugOption = False,
 ) -> None:
     b = _base(ctx, base)
     start_ms, end_ms = _ms(from_), _ms(to)
@@ -150,6 +162,7 @@ def monitor_url(
     ctx: typer.Context,
     id: int = typer.Option(..., "--id", help=t("ID del monitor", "Monitor ID")),
     base: Optional[str] = typer.Option(None, "--base"),
+    debug: DebugOption = False,
 ) -> None:
     b = _base(ctx, base)
     url = f"{b}/monitors/{id}"
@@ -168,6 +181,7 @@ def dashboard_url(
     ctx: typer.Context,
     id: str = typer.Option(..., "--id", help=t("ID del dashboard", "Dashboard ID")),
     base: Optional[str] = typer.Option(None, "--base"),
+    debug: DebugOption = False,
 ) -> None:
     b = _base(ctx, base)
     url = f"{b}/dashboard/{id}"
@@ -186,6 +200,7 @@ def incident_url(
     ctx: typer.Context,
     id: str = typer.Option(..., "--id", help=t("ID del incidente", "Incident ID")),
     base: Optional[str] = typer.Option(None, "--base"),
+    debug: DebugOption = False,
 ) -> None:
     b = _base(ctx, base)
     url = f"{b}/incidents/{id}"

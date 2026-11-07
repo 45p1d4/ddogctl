@@ -46,8 +46,8 @@ def resolve_context(
             cfg = load_config(config_path)
             ctxs = (cfg.get("contexts") or {}) if isinstance(cfg, dict) else {}
             ctx = {}
-            if context_name and isinstance(ctxs, dict):
-                ctx = ctxs.get(context_name) or {}
+            if isinstance(ctxs, dict):
+                ctx = ctxs.get(context_name or "prd") or {}
             site = (ctx or {}).get("site") or ""
         if not site:
             raise RuntimeError(

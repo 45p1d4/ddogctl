@@ -12,7 +12,7 @@ from ..i18n import t
 from ..options import DebugOption
 from ..utils_time import parse_time, to_iso8601
 from ..normalize import bucket_count, extract_buckets, normalize_rum_application, normalize_rum_event, trunc
-from ..ui import emit, new_table
+from ..ui import emit, new_table, fail
 
 app = typer.Typer(help=t("Operaciones de RUM (Real User Monitoring)", "RUM (Real User Monitoring) operations"))
 console = Console()
@@ -51,9 +51,7 @@ def apps_list(
 
         emit(ctx, "rum.apps.list", normalized, raw=resp, table_renderer=_render)
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "rum.apps.list", exc, debug)
 
 
 @events_app.command(
@@ -119,9 +117,7 @@ def events_search(
         meta = {"from": from_, "to": to, "query": effective_query}
         emit(ctx, "rum.events.search", normalized, raw=items, meta=meta, table_renderer=_render)
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "rum.events.search", exc, debug)
 
 
 @events_app.command(
@@ -182,6 +178,4 @@ def events_count(
         meta = {"from": from_, "to": to, "group_by": group_by, "query": query or "*"}
         emit(ctx, "rum.events.count", rows, raw=resp, meta=meta, table_renderer=_render)
     except Exception as exc:
-        if debug and isinstance(exc, ApiError):
-            console.print(f"[red]HTTP {exc.status_code}[/red] {exc.payload}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "rum.events.count", exc, debug)

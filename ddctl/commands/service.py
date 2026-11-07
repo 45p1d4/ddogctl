@@ -20,7 +20,7 @@ from ..normalize import (
     normalize_log,
     trunc as _trunc,
 )
-from ..ui import emit, new_table, build_title
+from ..ui import emit, new_table, build_title, fail
 
 # Reuse helpers from APM module
 from .apm import _build_query as _apm_build_query
@@ -356,14 +356,5 @@ def service_troubleshoot(
         emit(ctx, "service.troubleshoot", result, raw=full_payload, table_renderer=_render)
 
     except Exception as exc:
-        if debug:
-            if isinstance(exc, ApiError):
-                console.print(f"[red]HTTP {exc.status_code}[/red]")
-                try:
-                    console.print(RichJSON.from_data(exc.payload))
-                except Exception:
-                    console.print(str(exc.payload))
-            else:
-                console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+        fail(ctx, "service.troubleshoot", exc, debug)
 

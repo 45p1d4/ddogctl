@@ -49,34 +49,42 @@ def collect_inventory(app) -> List[str]:
     """
     Returns full command paths (space-separated) for all leaf commands.
     Example: ["apm spans list", "apm errors rate", "metrics query", ...]
+
+    Walks the click command tree directly. (Parsing `--help` text broke once
+    Typer started rendering help inside Rich boxes: the "Commands:" header was
+    never found, the inventory came back empty and the test passed vacuously.)
     """
+    import click
+    import typer
+
+    root = typer.main.get_command(app)
     inventory: List[str] = []
 
-    def _walk(path: List[str]) -> None:
-        help_text = _invoke_help(app, path)
-        subs = _parse_subcommands(help_text)
-        if not subs:
-            inventory.append(" ".join(path).strip())
-            return
-        for name in subs:
-            _walk([*path, name])
+    def _walk(cmd, path: List[str]) -> None:
+        if isinstance(cmd, click.Group):
+            for name, sub in sorted(cmd.commands.items()):
+                _walk(sub, [*path, name])
+        elif path:
+            inventory.append(" ".join(path))
 
-    _walk([])
-    # Filter out the empty root entry if present
-    return [p for p in inventory if p]
+    _walk(root, [])
+    return inventory
 
 
 def find_missing_debug(app) -> List[str]:
     """
-    Returns leaf command paths whose --help output does NOT contain '--debug'.
+    Returns leaf command paths that do NOT declare a `--debug` option.
     """
+    import click
+    import typer
+
+    root = typer.main.get_command(app)
     missing: List[str] = []
-    runner = CliRunner()
     for path in collect_inventory(app):
-        args = path.split() + ["--help"]
-        result = runner.invoke(app, args)
-        output = result.output or ""
-        if "--debug" not in output:
+        cmd = root
+        for name in path.split():
+            cmd = cmd.commands[name]  # type: ignore[attr-defined]
+        opts = {o for p in cmd.params if isinstance(p, click.Option) for o in p.opts}
+        if "--debug" not in opts:
             missing.append(path)
     return missing
-
